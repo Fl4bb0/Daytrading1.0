@@ -1,0 +1,38 @@
+{
+  "os":  "Linux-6.8.0-100-generic-x86_64-with-glibc2.39",
+  "python":  "CPython 3.12.3",
+  "startedAt":  "2026-02-19T13:12:48.479469Z",
+  "program":  "-m kvant.ml_framework.logging.wandb_logger",
+  "git":  {
+    "remote":  "https://lab.compute.dtu.dk/tuhe/rtrader.git",
+    "commit":  "da9369b0874f9e55a9aed0ebd337ac40cd98c248"
+  },
+  "email":  "tuhe@dtu.dk",
+  "root":  "/home/tuhe/Documents/rtrader/src/kvant/ml_framework/scripts",
+  "host":  "comp-pc5776",
+  "executable":  "/home/tuhe/Documents/bulldog/.venv/bin/python",
+  "cpu_count":  6,
+  "cpu_count_logical":  12,
+  "gpu":  "NVIDIA GeForce RTX 4090",
+  "gpu_count":  1,
+  "disk":  {
+    "/":  {
+      "total":  "983038173184",
+      "used":  "439675850752"
+    }
+  },
+  "memory":  {
+    "total":  "66490634240"
+  },
+  "gpu_nvidia":  [
+    {
+      "name":  "NVIDIA GeForce RTX 4090",
+      "memoryTotal":  "25757220864",
+      "cudaCores":  16384,
+      "architecture":  "Ada",
+      "uuid":  "GPU-45172789-39d6-ae9a-dd8c-0f770d10c466"
+    }
+  ],
+  "cudaVersion":  "13.0",
+  "writerId":  "4jk2cyjbxze9g5fhf16eivdtfgk0ygh2"
+}

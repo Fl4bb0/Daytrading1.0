@@ -1,0 +1,76 @@
+_wandb:
+    value:
+        cli_version: 0.25.0
+        e:
+            f7zen8yb7qhmuchdtczksn2351xy1q03:
+                cpu_count: 6
+                cpu_count_logical: 12
+                cudaVersion: "13.0"
+                disk:
+                    /:
+                        total: "983038173184"
+                        used: "439675539456"
+                email: tuhe@dtu.dk
+                executable: /home/tuhe/Documents/bulldog/.venv/bin/python
+                git:
+                    commit: da9369b0874f9e55a9aed0ebd337ac40cd98c248
+                    remote: https://lab.compute.dtu.dk/tuhe/rtrader.git
+                gpu: NVIDIA GeForce RTX 4090
+                gpu_count: 1
+                gpu_nvidia:
+                    - architecture: Ada
+                      cudaCores: 16384
+                      memoryTotal: "25757220864"
+                      name: NVIDIA GeForce RTX 4090
+                      uuid: GPU-45172789-39d6-ae9a-dd8c-0f770d10c466
+                host: comp-pc5776
+                memory:
+                    total: "66490634240"
+                os: Linux-6.8.0-100-generic-x86_64-with-glibc2.39
+                program: -m kvant.ml_framework.logging.wandb_logger
+                python: CPython 3.12.3
+                root: /home/tuhe/Documents/rtrader/src/kvant/ml_framework/scripts
+                startedAt: "2026-02-19T13:12:41.094779Z"
+                writerId: f7zen8yb7qhmuchdtczksn2351xy1q03
+        m: []
+        python_version: 3.12.3
+        t:
+            "1":
+                - 1
+                - 5
+                - 53
+                - 105
+            "2":
+                - 1
+                - 5
+                - 53
+                - 105
+            "3":
+                - 2
+                - 13
+                - 16
+            "4": 3.12.3
+            "5": 0.25.0
+            "8":
+                - 13
+            "12": 0.25.0
+            "13": linux-x86_64
+L:
+    value: 200
+class_weights:
+    value:
+        - 1.3203558921813965
+        - 0.08729877322912216
+        - 1.5923452377319336
+epochs:
+    value: 300
+eval_batch_size:
+    value: 512
+exp_dir:
+    value: /home/tuhe/Documents/rtrader/src/kvant/ml_framework/prepared/11bc7f8b735e5936
+lr:
+    value: 0.001
+train_batch_size:
+    value: 256
+weight_decay:
+    value: 1e-05

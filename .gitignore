@@ -5,3 +5,12 @@ __pycache__/
 .env
 .venv
 uv.lock
+
+**/ml_framework/prepared/*
+.neptune
+*.pyc
+cache/
+**debug-internal.log
+**debug.log
+**/latest-run*
+**/wandb/run-*

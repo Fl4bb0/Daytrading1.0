@@ -14,8 +14,8 @@ from kvant.ml_prepare_data.samplers.sampling import BarSampler
 from kvant.ml_prepare_data.reporting import report_sampling_density
 from kvant.ml_prepare_data.samplers.sampler_cumsum import TunedCUSUMBarSampler
 from typing import Dict, Optional, List  # add Any, List
-from src.kvant.kdata.hf_minute_data import get_ticker_data, DownloadedDatasetSplit, get_huggingface_top_5_small_splits
-from src.kvant.ml_prepare_data.dataset_preparation_utils import ensure_utc_sorted_index
+from kvant.kdata.hf_minute_data import get_ticker_data, DownloadedDatasetSplit, get_huggingface_top_5_small_splits
+from kvant.ml_prepare_data.dataset_preparation_utils import ensure_utc_sorted_index
 
 # ============================================================
 # 3) Experiment config + stable id

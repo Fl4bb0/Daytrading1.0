@@ -12,7 +12,7 @@ import numpy as np
 
 from kvant.kdata.hf_minute_data import DownloadedDatasetSplit
 # your existing components
-from src.kvant.ml_prepare_data.prepare_experiment import (
+from kvant.ml_prepare_data.prepare_experiment import (
     prepare_experiment,
     ExperimentConfig,
     OHLCVFeatures,
@@ -20,7 +20,7 @@ from src.kvant.ml_prepare_data.prepare_experiment import (
 from kvant.ml_prepare_data.labelling.tripple_bar import TripleBarrierLabeler
 from kvant.ml_prepare_data.samplers import IdentitySampler
 
-from src.kvant.kdata.hf_minute_data import (
+from kvant.kdata.hf_minute_data import (
     get_huggingface_top_4_tiny_splits,
     get_ticker_data,
 )

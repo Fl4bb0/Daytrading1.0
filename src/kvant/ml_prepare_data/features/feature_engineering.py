@@ -8,7 +8,7 @@ from typing import List, Optional, Protocol, Tuple, Dict
 import numpy as np
 import pandas as pd
 
-from src.kvant.ml_prepare_data.dataset_preparation_utils import ensure_utc_sorted_index
+from kvant.ml_prepare_data.dataset_preparation_utils import ensure_utc_sorted_index
 
 
 # ---------------------------------------------------------------------

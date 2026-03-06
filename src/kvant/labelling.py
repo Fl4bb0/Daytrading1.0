@@ -4,7 +4,7 @@ from typing import Optional, Union
 import numpy as np
 import pandas as pd
 
-from src.kvant.kmarket_info.is_nyse_open import nyse_trade_window_is_valid
+from kvant.kmarket_info.is_nyse_open import nyse_trade_window_is_valid
 
 
 @dataclasses.dataclass(frozen=True)

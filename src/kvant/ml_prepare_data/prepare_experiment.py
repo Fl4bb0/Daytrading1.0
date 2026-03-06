@@ -13,8 +13,7 @@ from kvant.ml_prepare_data.labelling.tripple_bar import Labeler, TripleBarrierLa
 from kvant.ml_prepare_data.samplers.sampling import BarSampler
 from kvant.ml_prepare_data.reporting import report_sampling_density
 from kvant.ml_prepare_data.samplers.sampler_cumsum import TunedCUSUMBarSampler
-from typing import Dict, Optional, List  # add Any, List
-from kvant.kdata.hf_minute_data import get_ticker_data, DownloadedDatasetSplit, get_huggingface_top_5_small_splits
+from typing import Dict, Optional, List
 from kvant.ml_prepare_data.dataset_preparation_utils import ensure_utc_sorted_index
 
 # ============================================================
@@ -500,8 +499,11 @@ def prepare_experiment(
 
 
 
-def prepare_single_dataset(dataset_split : DownloadedDatasetSplit, sampler, feature_engineer, labeler, L=64):
-    ticker_data_train, ticker_data_val, ticker_data_test = get_ticker_data(dataset_split)
+def prepare_single_dataset(dataset_split, sampler, feature_engineer, labeler, L=64):
+    from kvant.kdata.retriever import HuggingFaceRetriever
+    ticker_data_train, ticker_data_val, ticker_data_test = HuggingFaceRetriever().get_ticker_data(
+        [], downloaded_dataset=dataset_split
+    )
 
     # sampler = IdentitySampler(subsample_every=1)
     # fe = OHLCVFeatures(cols=("open", "high", "low", "close", "volume"), log1p_volume=True)
@@ -529,11 +531,10 @@ def prepare_single_dataset(dataset_split : DownloadedDatasetSplit, sampler, feat
     return prepared
 
 # ============================================================
-# 6) Minimal runnable main (plug in your data loader)
+# 6) Minimal runnable mains
 # ============================================================
-def main():
-    downloaded_splits = get_huggingface_top_5_small_splits()
-    ticker_data_train, ticker_data_val, ticker_data_test = get_ticker_data(downloaded_splits[-1])
+def _build_experiment(ticker_data_train, ticker_data_val, ticker_data_test):
+    """Shared experiment setup used by both main_hf and main_yahoo."""
 
     TBPD = 50
     sampler = TunedCUSUMBarSampler(target_bars_per_day=TBPD, aggregate_ohlcv=True)
@@ -586,10 +587,93 @@ def main():
     import os
     os.path.basename(prepared.exp_dir)
     from kvant.ml_prepare_data import prepared_data_root
-    with open( prepared_data_root / "last_experiment.txt", 'w') as f:
-        f.write(name := os.path.basename( prepared.exp_dir) )
+    with open(prepared_data_root / "last_experiment.txt", "w") as f:
+        f.write(name := os.path.basename(prepared.exp_dir))
         print("Wrote name to", name)
 
 
+def main_hf():
+    """Run experiment with HuggingFace minute-bar data (pre-built splits)."""
+    from kvant.kdata.retriever import HuggingFaceRetriever
+    hf = HuggingFaceRetriever()
+    downloaded_splits = hf.get_splits(preset="small")
+    ticker_data_train, ticker_data_val, ticker_data_test = hf.get_ticker_data(
+        [], downloaded_dataset=downloaded_splits[-1]
+    )
+    _build_experiment(ticker_data_train, ticker_data_val, ticker_data_test)
+
+
+def main_yahoo(
+    symbols: List[str] = None,
+    period: str = "6mo",
+    interval: str = "1d",
+    val_frac: float = 0.15,
+    test_frac: float = 0.15,
+):
+    """Run experiment with Yahoo Finance data.
+
+    Args:
+        symbols:   List of ticker symbols. Defaults to a small set of liquid stocks.
+        period:    yfinance period string, e.g. ``"6mo"``, ``"2y"``.
+        interval:  Bar interval, e.g. ``"1d"``, ``"1h"``, ``"5m"``.
+        val_frac:  Fraction of each ticker's history reserved for validation.
+        test_frac: Fraction reserved for testing (taken from the end).
+    """
+    from kvant.kdata.retriever import YahooRetriever
+
+    if symbols is None:
+        symbols = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN"]
+
+    retriever = YahooRetriever()
+    all_data = retriever.get_ticker_data(symbols, period=period, interval=interval)
+
+    ticker_data_train: Dict[str, pd.DataFrame] = {}
+    ticker_data_val: Dict[str, pd.DataFrame] = {}
+    ticker_data_test: Dict[str, pd.DataFrame] = {}
+
+    for sym, df in all_data.items():
+        n = len(df)
+        n_test = max(1, int(n * test_frac))
+        n_val = max(1, int(n * val_frac))
+        n_train = n - n_val - n_test
+        if n_train <= 0:
+            print(f"Skipping {sym}: not enough rows ({n}) for the requested split fractions.")
+            continue
+        ticker_data_train[sym] = df.iloc[:n_train]
+        ticker_data_val[sym] = df.iloc[n_train: n_train + n_val]
+        ticker_data_test[sym] = df.iloc[n_train + n_val:]
+
+    if not ticker_data_train:
+        raise RuntimeError("No tickers had enough data to form a train split.")
+
+    _build_experiment(ticker_data_train, ticker_data_val, ticker_data_test)
+
+
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Prepare an ML experiment.")
+    parser.add_argument(
+        "source",
+        choices=["hf", "yahoo"],
+        help="Data source: 'hf' for HuggingFace, 'yahoo' for Yahoo Finance.",
+    )
+    # Yahoo-specific options
+    parser.add_argument("--symbols", nargs="+", default=None, help="Ticker symbols (yahoo only).")
+    parser.add_argument("--period", default="6mo", help="yfinance period string (yahoo only).")
+    parser.add_argument("--interval", default="1d", help="Bar interval (yahoo only).")
+    parser.add_argument("--val-frac", type=float, default=0.15, help="Validation fraction (yahoo only).")
+    parser.add_argument("--test-frac", type=float, default=0.15, help="Test fraction (yahoo only).")
+    args = parser.parse_args()
+
+    if args.source == "hf":
+        main_hf()
+    else:
+        main_yahoo(
+            symbols=args.symbols,
+            period=args.period,
+            interval=args.interval,
+            val_frac=args.val_frac,
+            test_frac=args.test_frac,
+        )
+

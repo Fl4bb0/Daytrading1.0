@@ -6,6 +6,7 @@ __pycache__/
 .venv
 uv.lock
 
+**/prepared/*
 **/ml_framework/prepared/*
 .neptune
 *.pyc

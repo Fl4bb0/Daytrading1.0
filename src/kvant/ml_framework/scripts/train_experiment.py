@@ -8,7 +8,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from kvant.ml_prepare_data.data_loading import PreparedExperiment
-from kvant.ml_framework.models import ResNLS
+from kvant.ml_framework.models import Conv1DClassifier, Conv3DClassifier, ResNLS, TSBClassifier
 from kvant.ml_framework.train import Trainer, TrainConfig, ExperimentEvaluator, EvalConfig
 from kvant.ml_framework.train.utils import class_weights_from_dataset
 from kvant.ml_framework.logging import WandbLogger
@@ -44,6 +44,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--wandb-name", type=str, default=None)
     p.add_argument("--no-return-stats", action="store_true")
     p.add_argument("--topk-ticker-plots", type=int, default=50)
+    p.add_argument(
+        "--model",
+        type=str,
+        default="ResNLS",
+        choices=["ResNLS", "Conv1DClassifier", "Conv3DClassifier", "TSBClassifier"],
+        help="Model architecture to train.",
+    )
     return p.parse_args()
 
 
@@ -79,7 +86,13 @@ def main() -> None:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # Args for conv1d n_features=exp.store.n_features, n_classes=3
-    model = ResNLS().to(device)
+    _model_registry = {
+        "ResNLS": ResNLS,
+        "Conv1DClassifier": Conv1DClassifier,
+        "Conv3DClassifier": Conv3DClassifier,
+        "TSBClassifier": TSBClassifier,
+    }
+    model = _model_registry[args.model]().to(device)
 
     w = class_weights_from_dataset(ds_train, n_classes=3)
     criterion = nn.CrossEntropyLoss(weight=torch.tensor(w, device=device))
@@ -91,6 +104,7 @@ def main() -> None:
         name=args.wandb_name or "stocks-run",
         config={
             "exp_dir": str(args.exp_dir),
+            "model": args.model,
             "epochs": args.epochs,
             "lr": args.lr,
             "weight_decay": args.weight_decay,

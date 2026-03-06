@@ -27,6 +27,16 @@ dependencies = [
     "yfinance>=1.2.0",
 ]
 
+#[tool.uv]
+#package = true
+#
+#[build-system]
+#requires = ["hatchling"]
+#build-backend = "hatchling.build"
+#
+#[tool.hatchling.build.targets.wheel]
+#packages = ["src/kvant"]
+
 # Makes imports work efficiently in src directory
 [tool.setuptools.packages.find]
 where = ["src"]

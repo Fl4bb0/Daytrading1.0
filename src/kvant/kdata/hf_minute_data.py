@@ -230,7 +230,7 @@ def download_and_create_dataset(dataset_configurations : list[DatasetConfigurati
 
 
 def get_huggingface_top_200_splits():
-    from src import kvant
+    import kvant
     cache_dir = os.path.abspath(kvant.__path__[0] + "/../../cache/top_200")
     downloaded_datasets = download_and_create_dataset(available_datasets(), use_top_n_tickers=200, cache_dir=cache_dir)
     print("-"*80)
@@ -246,7 +246,7 @@ too many tickers!
 
 
 def get_huggingface_top_n_tiny_splits(n=4, warmup_quarters=1, blacklisted_tickers=None):
-    from src import kvant
+    import kvant
     if blacklisted_tickers is None:
         blacklisted_tickers = ("SPY", "QQQ")
 

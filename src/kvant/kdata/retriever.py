@@ -117,6 +117,16 @@ class YahooRetriever(DataRetriever):
         )
         if not df.empty:
             df.index = pd.to_datetime(df.index, utc=True)
+            df.columns = [c.lower() for c in df.columns]
+            # yfinance sometimes adds a "ticker" or "price" level — drop if present
+            for col in ("ticker", "price"):
+                if col in df.columns:
+                    df = df.drop(columns=col)
+            # Daily bars arrive with a midnight-UTC timestamp which falls outside
+            # the NYSE trading window and causes the triple-barrier labeller to
+            # reject every row.  Snap them to 14:30 UTC (= 09:30 ET, market open).
+            if interval == "1d":
+                df.index = df.index.normalize() + pd.Timedelta(hours=14, minutes=30)
         return df
 
     def get_ticker_data(

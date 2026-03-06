@@ -4,8 +4,8 @@ import pandas_market_calendars as mcal
 _NYSE_CAL = mcal.get_calendar("NYSE")
 _NY_TZ = "America/New_York"
 
-# Build once (covers 2010-01-01 .. 2026-01-01)
-_NYSE_SCHED = _NYSE_CAL.schedule(start_date="2010-01-01", end_date="2026-01-01")
+# Build once (covers 2010-01-01 .. 2035-01-01)
+_NYSE_SCHED = _NYSE_CAL.schedule(start_date="2010-01-01", end_date="2035-01-01")
 
 # Fast lookup: python-date -> (market_open_utc, market_close_utc)
 # schedule columns are tz-aware UTC timestamps already

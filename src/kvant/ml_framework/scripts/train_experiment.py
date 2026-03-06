@@ -8,7 +8,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from kvant.ml_prepare_data.data_loading import PreparedExperiment
-from kvant.ml_framework.models import Conv1DClassifier
+from kvant.ml_framework.models import ResNLS
 from kvant.ml_framework.train import Trainer, TrainConfig, ExperimentEvaluator, EvalConfig
 from kvant.ml_framework.train.utils import class_weights_from_dataset
 from kvant.ml_framework.logging import WandbLogger
@@ -78,7 +78,8 @@ def main() -> None:
 
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = Conv1DClassifier(n_features=exp.store.n_features, n_classes=3).to(device)
+    # Args for conv1d n_features=exp.store.n_features, n_classes=3
+    model = ResNLS().to(device)
 
     w = class_weights_from_dataset(ds_train, n_classes=3)
     criterion = nn.CrossEntropyLoss(weight=torch.tensor(w, device=device))

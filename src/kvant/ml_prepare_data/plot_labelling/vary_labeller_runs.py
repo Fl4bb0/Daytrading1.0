@@ -6,24 +6,18 @@ import shutil
 import hashlib
 from dataclasses import asdict
 from pathlib import Path
-from typing import Dict, Any, Tuple, List
+from typing import Dict, Any, List
 
-import numpy as np
-
-from kvant.kdata.hf_minute_data import DownloadedDatasetSplit
+from kvant.kdata.retriever import HuggingFaceRetriever, YahooRetriever
 # your existing components
-from src.kvant.ml_prepare_data.prepare_experiment import (
+from kvant.ml_prepare_data.prepare_experiment import (
     prepare_experiment,
     ExperimentConfig,
-    OHLCVFeatures,
 )
+from kvant.ml_prepare_data.features.feature_engineering import OHLCVFeatures
 from kvant.ml_prepare_data.labelling.tripple_bar import TripleBarrierLabeler
-from kvant.ml_prepare_data.samplers import IdentitySampler
+from kvant.ml_prepare_data.samplers.sampling import IdentitySampler
 
-from src.kvant.kdata.hf_minute_data import (
-    get_huggingface_top_4_tiny_splits,
-    get_ticker_data,
-)
 
 # IMPORTANT: use your real import path for this
 # (user example: exp = PreparedExperiment(exp_dir))
@@ -144,7 +138,9 @@ def _extract_per_ticker_counts_from_prepared(exp: PreparedExperiment) -> dict[st
 
 def run_sweep_and_save_pkl(
     *,
-    downloaded_splits : list[DownloadedDatasetSplit],
+    ticker_data_train: Dict[str, Any],
+    ticker_data_val: Dict[str, Any],
+    ticker_data_test: Dict[str, Any],
     out_root_prepared: Path,
     out_pkl_path: Path,
     width_minutes_grid: List[int],
@@ -153,13 +149,6 @@ def run_sweep_and_save_pkl(
     subsample_every: int = 1,
     drop_time_exit_label: bool = False,
 ) -> Path:
-    if downloaded_splits is None:
-        print("Downloaded splits are none, giving them default.")
-        assert False
-        # downloaded_splits = get_huggingface_top_4_tiny_splits()
-
-    dataset_split = downloaded_splits[-1]
-    ticker_data_train, ticker_data_val, ticker_data_test = get_ticker_data(dataset_split)
 
     sampler = IdentitySampler(subsample_every=subsample_every)
     fe = OHLCVFeatures(cols=("open", "high", "low", "close", "volume"), log1p_volume=True)
@@ -248,30 +237,119 @@ def run_sweep_and_save_pkl(
     return out_pkl_path
 
 
-def main():
-    from kvant.ml_prepare_data import prepared_data_root
-    from kvant.ml_prepare_data.prepare_experiment import get_huggingface_top_5_small_splits
-
-    out_root_prepared = prepared_data_root # Path("prepared")  # same as you use normally
-    out_pkl_path = Path("prepared") / "sweep_tb_label_stats.pkl"
-    downloaded_splits = get_huggingface_top_5_small_splits()
-
-    # requested start
-    width_minutes_grid = [60, 120, 180]
-    height_grid = [0.015, 0.02, 0.03]  # if you want more resolution: [0.2, 0.25, 0.3]
-
-    pkl_path = run_sweep_and_save_pkl(
-        downloaded_splits=downloaded_splits,
+def _default_sweep_kwargs(out_root_prepared: Path, out_pkl_path: Path) -> dict:
+    return dict(
         out_root_prepared=out_root_prepared,
         out_pkl_path=out_pkl_path,
-        width_minutes_grid=width_minutes_grid,
-        height_grid=height_grid,
+        width_minutes_grid=[60, 120, 180],
+        height_grid=[0.015, 0.02, 0.03],
         lookback_L=5,
         subsample_every=1,
         drop_time_exit_label=False,
+    )
+
+
+def main_hf():
+    """Run labeller sweep using HuggingFace minute-bar data."""
+    from kvant.ml_prepare_data import prepared_data_root
+
+    hf = HuggingFaceRetriever()
+    downloaded_splits = hf.get_splits(preset="small")
+    ticker_data_train, ticker_data_val, ticker_data_test = hf.get_ticker_data(
+        [], downloaded_dataset=downloaded_splits[-1]
+    )
+
+    out_root_prepared = prepared_data_root
+    out_pkl_path = Path("prepared") / "sweep_tb_label_stats.pkl"
+
+    pkl_path = run_sweep_and_save_pkl(
+        ticker_data_train=ticker_data_train,
+        ticker_data_val=ticker_data_val,
+        ticker_data_test=ticker_data_test,
+        **_default_sweep_kwargs(out_root_prepared, out_pkl_path),
+    )
+    print("Wrote:", pkl_path)
+
+
+def main_yahoo(
+    symbols: List[str] = None,
+    period: str = "6mo",
+    interval: str = "1d",
+    val_frac: float = 0.15,
+    test_frac: float = 0.15,
+):
+    """Run labeller sweep using Yahoo Finance data.
+
+    Args:
+        symbols:   Ticker symbols to fetch. Defaults to a small liquid set.
+        period:    yfinance period string, e.g. ``"6mo"``, ``"2y"``.
+        interval:  Bar interval, e.g. ``"1d"``, ``"1h"``, ``"5m"``.
+        val_frac:  Fraction of each ticker's history reserved for validation.
+        test_frac: Fraction reserved for testing (taken from the end).
+    """
+    import pandas as pd
+    from kvant.ml_prepare_data import prepared_data_root
+
+    if symbols is None:
+        symbols = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN"]
+
+    all_data = YahooRetriever().get_ticker_data(symbols, period=period, interval=interval)
+
+    ticker_data_train: Dict[str, pd.DataFrame] = {}
+    ticker_data_val: Dict[str, pd.DataFrame] = {}
+    ticker_data_test: Dict[str, pd.DataFrame] = {}
+
+    for sym, df in all_data.items():
+        n = len(df)
+        n_test = max(1, int(n * test_frac))
+        n_val = max(1, int(n * val_frac))
+        n_train = n - n_val - n_test
+        if n_train <= 0:
+            print(f"Skipping {sym}: not enough rows ({n}) for the requested split fractions.")
+            continue
+        ticker_data_train[sym] = df.iloc[:n_train]
+        ticker_data_val[sym] = df.iloc[n_train: n_train + n_val]
+        ticker_data_test[sym] = df.iloc[n_train + n_val:]
+
+    if not ticker_data_train:
+        raise RuntimeError("No tickers had enough data to form a train split.")
+
+    out_root_prepared = prepared_data_root
+    out_pkl_path = Path("prepared") / "sweep_tb_label_stats.pkl"
+
+    pkl_path = run_sweep_and_save_pkl(
+        ticker_data_train=ticker_data_train,
+        ticker_data_val=ticker_data_val,
+        ticker_data_test=ticker_data_test,
+        **_default_sweep_kwargs(out_root_prepared, out_pkl_path),
     )
     print("Wrote:", pkl_path)
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Labeller parameter sweep.")
+    parser.add_argument(
+        "source",
+        choices=["hf", "yahoo"],
+        help="Data source: 'hf' for HuggingFace, 'yahoo' for Yahoo Finance.",
+    )
+    parser.add_argument("--symbols", nargs="+", default=None, help="Ticker symbols (yahoo only).")
+    parser.add_argument("--period", default="6mo", help="yfinance period string (yahoo only).")
+    parser.add_argument("--interval", default="1d", help="Bar interval (yahoo only).")
+    parser.add_argument("--val-frac", type=float, default=0.15, dest="val_frac", help="Validation fraction (yahoo only).")
+    parser.add_argument("--test-frac", type=float, default=0.15, dest="test_frac", help="Test fraction (yahoo only).")
+    args = parser.parse_args()
+
+    if args.source == "hf":
+        main_hf()
+    else:
+        main_yahoo(
+            symbols=args.symbols,
+            period=args.period,
+            interval=args.interval,
+            val_frac=args.val_frac,
+            test_frac=args.test_frac,
+        )
+

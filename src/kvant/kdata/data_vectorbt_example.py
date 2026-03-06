@@ -36,7 +36,7 @@ def run_ma_crossover(close: pd.Series) -> vbt.Portfolio:
 
 
 def main():
-    from src.kvant.kdata import load_one_month
+    from kvant.kdata import load_one_month
     df_month = load_one_month(MONTH_FILE)
 
     # Print tickers in this month shard

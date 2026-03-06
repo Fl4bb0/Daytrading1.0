@@ -1,6 +1,6 @@
 
 # from historical_stuff.data_vectorbt_example import MONTH_FILE
-from src.kvant.kdata.hf_download_utils import load_one_month
+from kvant.kdata.hf_download_utils import load_one_month
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -352,7 +352,7 @@ if __name__ == "__main__":
 
     df = ticker_data_train[ticker]
     # df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
-    from src.kvant.labelling import tripple_bar_label
+    from kvant.labelling import tripple_bar_label
     # for kk, t in enumerate(df.index):
     #     a, b = tripple_bar_label(df,  time_start=t, width=32, height=0.025)
     #     print(t, a,b)

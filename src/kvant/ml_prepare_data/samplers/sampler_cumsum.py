@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Tuple
 import numpy as np
 import pandas as pd
-from src.kvant.ml_prepare_data.dataset_preparation_utils import ensure_utc_sorted_index
+from kvant.ml_prepare_data.dataset_preparation_utils import ensure_utc_sorted_index
 from kvant.ml_prepare_data.samplers.sampling import BaseBarSampler
 
 def _cusum_event_ends(close: np.ndarray, h: float) -> np.ndarray:

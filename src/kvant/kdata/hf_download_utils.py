@@ -2,7 +2,7 @@ import pandas as pd
 from huggingface_hub import hf_hub_download
 from pyarrow import parquet as pq
 
-from src.kvant.kdata.data_vectorbt_example import REPO_ID
+from kvant.kdata.data_vectorbt_example import REPO_ID
 
 
 def load_one_month(month_file: str) -> pd.DataFrame:

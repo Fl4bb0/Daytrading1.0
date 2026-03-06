@@ -1,0 +1,100 @@
+Price Structure
+
+  Average True Range (ATR)
+  - Measures volatility normalized by price level
+  - Useful for position sizing and barrier calibration
+  - ATR(14) = EWM of max(high-low, |high-prev_close|, |low-prev_close|)
+
+  Relative bar body/wick ratios
+  - body = (close - open) / (high - low) — candlestick structure
+  - upper_wick = (high - max(open,close)) / (high - low)
+  - lower_wick = (min(open,close) - low) / (high - low)
+  - These encode rejection/pressure at price levels without lookahead
+
+  Return lookbacks at multiple horizons
+  - logret_5, logret_10, logret_20, logret_60 — momentum at different scales
+  - Currently only logret_1 exists
+
+  ---
+  Volume / Order Flow
+
+  Volume ratio vs rolling average
+  vol_ratio_20 = volume / volume.rolling(20).mean()
+  - Detects unusual volume spikes (breakouts, reversals)
+  - More informative than raw or log volume alone
+
+  VWAP deviation
+  vwap = (close * volume).rolling(N).sum() / volume.rolling(N).sum()
+  vwap_dev = (close - vwap) / vwap
+  - VWAP is a key intraday reference price used by institutional traders
+  - Deviation from it signals mean-reversion or momentum
+
+  On-Balance Volume (OBV) rate of change
+  obv = (np.sign(close.diff()) * volume).cumsum()
+  obv_roc = obv.diff(10) / (obv.abs().rolling(10).mean() + eps)
+  - Captures accumulation/distribution pressure
+
+  ---
+  Volatility Regime
+
+  Realized volatility (rolling std of log returns)
+  rvol_20 = np.log(close).diff().rolling(20).std()
+  rvol_60 = np.log(close).diff().rolling(60).std()
+  - Directly measures how "active" the stock is in that session
+  - Models often need to know whether they're in a quiet or explosive regime
+
+  ATR ratio (short/long)
+  atr_ratio = atr_5 / (atr_20 + eps)
+  - Detects volatility expansion vs contraction — key for breakout vs mean-reversion regimes
+
+  ---
+  Market Microstructure / Intraday Specific
+
+  Intraday return from open
+  intraday_ret = (close - open_of_day) / open_of_day
+  - Captures gap-and-go vs fade dynamics
+  - Requires tracking the session open separately
+
+  Minutes since market open / minutes to close (as raw features in addition to sin/cos)
+  minutes_since_open = (timestamp - session_open).total_seconds() / 60
+  minutes_to_close = (session_close - timestamp).total_seconds() / 60
+  - Many intraday patterns are highly time-of-day dependent (opening range, lunch lull, closing rush)
+  - The existing sin/cos encoding loses the asymmetry between "just opened" vs "about to close"
+
+  ---
+  Trend / Regime
+
+  Price relative to N-bar high/low
+  pct_from_high_20 = (close - high.rolling(20).max()) / high.rolling(20).max()
+  pct_from_low_20 = (close - low.rolling(20).min()) / low.rolling(20).min()
+  - Captures proximity to recent support/resistance
+  - Complements Bollinger Bands (which are std-based, not range-based)
+
+  EMA slope / momentum
+  ema_slope_10 = (ema_10 - ema_10.shift(5)) / (ema_10.shift(5) + eps)
+  - The EMA level alone doesn't tell the model if the trend is accelerating or stalling
+
+  ---
+  What to Be Careful About
+
+  ┌───────────────────────────┬────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+  │           Risk            │                                                               Mitigation                                                               │
+  ├───────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Lookahead bias            │ All features must use only data available at bar t. Rolling windows looking forward = data leak                                        │
+  ├───────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Overfitting to indicators │ More features = more noise. Start with what adds variance orthogonal to existing ones                                                  │
+  ├───────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Scale sensitivity         │ All of the above should go through StandardizedFeatures or be ratio-based already                                                      │
+  ├───────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ NaN propagation           │ Warmup periods for rolling windows will produce NaNs — the existing fillna_value=0.0 handles this but check it makes sense per feature │
+  └───────────────────────────┴────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+  ---
+  Recommended Priority for Daytrading
+
+  1. VWAP deviation — most institutionally relevant intraday feature
+  2. ATR — essential for volatility-aware models
+  3. Multi-horizon log returns (5, 10, 20, 60 bars) — momentum signal at different scales
+  4. Volume ratio vs average — breakout/quiet regime detection
+  5. Candlestick body/wick ratios — encodes price rejection without lookahead
+  6. Minutes since open / to close — intraday time structure beyond just sin/cos

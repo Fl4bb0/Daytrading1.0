@@ -533,23 +533,39 @@ def prepare_single_dataset(dataset_split, sampler, feature_engineer, labeler, L=
 # ============================================================
 # 6) Minimal runnable mains
 # ============================================================
-def _build_experiment(ticker_data_train, ticker_data_val, ticker_data_test):
-    """Shared experiment setup used by both main_hf and main_yahoo."""
+def _build_experiment(ticker_data_train, ticker_data_val, ticker_data_test, interval: str = "1m"):
+    """Shared experiment setup used by both main_hf and main_yahoo.
 
-    TBPD = 50
+    Args:
+        interval: Bar interval string (e.g. ``"1m"``, ``"1h"``, ``"1d"``).
+                  Used to scale width_minutes and target_bars_per_day to the
+                  actual bar frequency so the labeller and sampler produce
+                  meaningful output regardless of source.
+    """
+    # ------------------------------------------------------------------
+    # Derive bar duration in minutes so downstream params are consistent
+    # ------------------------------------------------------------------
+    _interval_minutes = {
+        "1m": 1, "2m": 2, "5m": 5, "15m": 15, "30m": 30,
+        "60m": 60, "1h": 60, "90m": 90, "1d": 390, "1wk": 1950,
+    }
+    bar_minutes = _interval_minutes.get(interval, 1)
+
+    # Triple-barrier width: ~20 bars expressed in minutes
+    width = bar_minutes * 20
+    # CUSUM target: aim for ~4 events per "day" worth of bars
+    TBPD = max(1, round(390 / bar_minutes * 0.5))
     sampler = TunedCUSUMBarSampler(target_bars_per_day=TBPD, aggregate_ohlcv=True)
-    # fe = OHLCVFeatures(cols=("open", "high", "low", "close", "volume"), log1p_volume=True)
 
     base_fe = IntradayTA10Features(
         volume_output="log1p",
         include_time_features=True,
-        typical_bar_minutes=None,  # periods in bars (paper style)
+        typical_bar_minutes=None,
         fillna_value=0.0,
     )
     fe = StandardizedFeatures(base=base_fe)
 
-    # fe
-    L, width, height_pct = 20, 60, 1.5
+    L, height_pct = 20, 1.5
     label = f"sb_L_{L}_w{width}_h{height_pct}_TBPD{TBPD}"
     print(f"Writing to {label=}")
     labeler = TripleBarrierLabeler(
@@ -646,7 +662,7 @@ def main_yahoo(
     if not ticker_data_train:
         raise RuntimeError("No tickers had enough data to form a train split.")
 
-    _build_experiment(ticker_data_train, ticker_data_val, ticker_data_test)
+    _build_experiment(ticker_data_train, ticker_data_val, ticker_data_test, interval=interval)
 
 
 if __name__ == "__main__":

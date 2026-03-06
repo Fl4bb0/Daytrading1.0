@@ -85,14 +85,13 @@ def main() -> None:
 
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # Args for conv1d n_features=exp.store.n_features, n_classes=3
     _model_registry = {
-        "ResNLS": ResNLS,
-        "Conv1DClassifier": Conv1DClassifier,
-        "Conv3DClassifier": Conv3DClassifier,
-        "TSBClassifier": TSBClassifier,
+        "ResNLS": ResNLS(),
+        "Conv1DClassifier": Conv1DClassifier(n_features=exp.store.n_features, n_classes=3),
+        "Conv3DClassifier": Conv3DClassifier(),
+        "TSBClassifier": TSBClassifier(n_features=exp.store.n_features, n_classes=3),
     }
-    model = _model_registry[args.model]().to(device)
+    model = _model_registry[args.model].to(device)
 
     w = class_weights_from_dataset(ds_train, n_classes=3)
     criterion = nn.CrossEntropyLoss(weight=torch.tensor(w, device=device))

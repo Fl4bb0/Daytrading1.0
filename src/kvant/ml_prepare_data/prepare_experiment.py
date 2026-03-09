@@ -565,7 +565,7 @@ def _build_experiment(ticker_data_train, ticker_data_val, ticker_data_test, inte
     )
     fe = StandardizedFeatures(base=base_fe)
 
-    L, height_pct = 20, 1.5
+    L, height_pct = 20, 0.5
     label = f"sb_L_{L}_w{width}_h{height_pct}_TBPD{TBPD}"
     print(f"Writing to {label=}")
     labeler = TripleBarrierLabeler(

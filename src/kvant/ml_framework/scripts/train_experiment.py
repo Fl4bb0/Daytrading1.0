@@ -86,7 +86,7 @@ def main() -> None:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     _model_registry = {
-        "ResNLS": ResNLS(),
+        "ResNLS": ResNLS(n_features=exp.store.n_features, seq_len=exp.L, n_classes=3),
         "Conv1DClassifier": Conv1DClassifier(n_features=exp.store.n_features, n_classes=3),
         "Conv3DClassifier": Conv3DClassifier(),
         "TSBClassifier": TSBClassifier(n_features=exp.store.n_features, n_classes=3),

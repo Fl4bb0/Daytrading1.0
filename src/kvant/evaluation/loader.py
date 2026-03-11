@@ -4,19 +4,25 @@ evaluation.loader — Load prepared experiment artifacts from disk for a given s
 load_split(exp_dir, split, tickers=None)
     → (X, y, timestamps, tids, metas, ticker_map)
 
-Directory layout expected (produced by experiment.artifacts):
+Actual on-disk layout (produced by prepare_experiment):
     <exp_dir>/
-        <split>/
+        config.json
+        index_train.npy      ← (n, 2) arrays of (tid, position)
+        index_val.npy
+        index_test.npy
+        tickers_<split>.json
+        tickers/
             <TICKER>/
-                features.npy
-                labels.npy
-                timestamps.npy
+                features.npy         (total_bars, n_features)
+                labels.npy           (total_bars,)
+                timestamps.npy       (total_bars,)
+                label_metadata.jsonl (total_bars lines)
                 meta.json
-                label_metadata.jsonl   (optional)
 """
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -28,107 +34,124 @@ def load_split(
     split: str,
     tickers: Optional[List[str]] = None,
 ) -> Tuple[
-    np.ndarray,          # X       : float32, shape (n, n_features, lookback_L)
-    np.ndarray,          # y       : int8,    shape (n,)
-    np.ndarray,          # timestamps: datetime64[ns], shape (n,)
-    np.ndarray,          # tids    : int64,   shape (n,)  — monotonic ticker id
-    List[Optional[dict]],# metas   : per-sample label metadata (None if missing)
-    Dict[int, str],      # ticker_map: tid → ticker symbol
+    np.ndarray,           # X          : float32, shape (n, n_features, lookback_L)
+    np.ndarray,           # y          : int64,   shape (n,)
+    np.ndarray,           # timestamps : datetime64[ns], shape (n,)
+    np.ndarray,           # tids       : int64,   shape (n,)
+    List[Optional[dict]], # metas      : per-sample label metadata
+    Dict[int, str],       # ticker_map : tid → ticker symbol
 ]:
     """
-    Load all artifacts for *split* from *exp_dir* and concatenate them.
-
-    Parameters
-    ----------
-    exp_dir  : Path to a prepared experiment directory.
-    split    : One of ``"train"``, ``"val"``, ``"test"``.
-    tickers  : Optional allowlist; if given, only these tickers are loaded.
-
-    Returns
-    -------
-    X, y, timestamps, tids, metas, ticker_map
+    Load all artifacts for *split* from *exp_dir*, apply the lookback window,
+    and return concatenated arrays ready for model inference.
     """
-    split_dir = Path(exp_dir) / split
-    if not split_dir.exists():
-        raise FileNotFoundError(
-            f"Split directory not found: {split_dir}\n"
-            f"Expected layout: <exp_dir>/<split>/<TICKER>/features.npy …"
-        )
+    exp_dir = Path(exp_dir)
 
-    ticker_dirs = sorted(p for p in split_dir.iterdir() if p.is_dir())
-    if not ticker_dirs:
-        raise FileNotFoundError(f"No ticker sub-directories found in {split_dir}")
+    # ------------------------------------------------------------------
+    # Resolve which tickers belong to this split
+    # ------------------------------------------------------------------
+    tickers_file = exp_dir / f"tickers_{split}.json"
+    if not tickers_file.exists():
+        raise FileNotFoundError(f"Tickers list not found: {tickers_file}")
+    split_tickers: List[str] = json.loads(tickers_file.read_text())
 
     if tickers is not None:
-        tickers_set = set(tickers)
-        ticker_dirs = [p for p in ticker_dirs if p.name in tickers_set]
-        if not ticker_dirs:
-            raise ValueError(
-                f"None of the requested tickers {tickers} found in {split_dir}"
-            )
+        missing = [t for t in tickers if t not in split_tickers]
+        if missing:
+            raise ValueError(f"Requested tickers not in {split} split: {missing}")
+        split_tickers = [t for t in split_tickers if t in set(tickers)]
 
-    Xs: List[np.ndarray] = []
-    ys: List[np.ndarray] = []
-    tss: List[np.ndarray] = []
-    tid_arrs: List[np.ndarray] = []
-    metas_all: List[Optional[dict]] = []
+    if not split_tickers:
+        raise RuntimeError(f"No tickers available for split '{split}'")
+
+    # ------------------------------------------------------------------
+    # Build tid → ticker mapping (consistent with prepare_experiment order)
+    # ------------------------------------------------------------------
+    all_tickers: List[str] = json.loads((exp_dir / "tickers_all.json").read_text())
+    tid_to_ticker: Dict[int, str] = {i: t for i, t in enumerate(all_tickers)}
+    ticker_to_tid: Dict[str, int] = {t: i for i, t in enumerate(all_tickers)}
+
+    # ------------------------------------------------------------------
+    # Load lookback_L from config
+    # ------------------------------------------------------------------
+    cfg       = json.loads((exp_dir / "config.json").read_text())
+    lookback_L = int(cfg["lookback_L"])
+
+    # ------------------------------------------------------------------
+    # Load index array for this split: shape (n, 2) → (tid, position)
+    # ------------------------------------------------------------------
+    index_path = exp_dir / f"index_{split}.npy"
+    if not index_path.exists():
+        raise FileNotFoundError(f"Index file not found: {index_path}")
+    index = np.load(index_path)  # (n, 2)
+
+    if len(index) == 0:
+        empty = np.asarray([], dtype=np.int64)
+        return (
+            np.empty((0, 1, lookback_L), dtype=np.float32),
+            empty, empty, empty, [], {},
+        )
+
+    # Filter index to requested tickers
+    allowed_tids = {ticker_to_tid[t] for t in split_tickers}
+    mask  = np.isin(index[:, 0], list(allowed_tids))
+    index = index[mask]
+
+    # ------------------------------------------------------------------
+    # Group positions by tid, load features/labels/timestamps/metas
+    # ------------------------------------------------------------------
+    tickers_root = exp_dir / "tickers"
+    by_tid: Dict[int, List[int]] = defaultdict(list)
+    for tid, pos in index:
+        by_tid[int(tid)].append(int(pos))
+
+    X_parts:    List[np.ndarray] = []
+    y_parts:    List[np.ndarray] = []
+    ts_parts:   List[np.ndarray] = []
+    tid_parts:  List[np.ndarray] = []
+    metas_all:  List[Optional[dict]] = []
     ticker_map: Dict[int, str] = {}
 
-    reference_shape: Optional[Tuple[int, ...]] = None  # (n_features, lookback_L)
+    for tid in sorted(by_tid):
+        ticker   = tid_to_ticker[tid]
+        tdir     = tickers_root / ticker
+        positions = np.array(by_tid[tid])
 
-    for tid, tdir in enumerate(ticker_dirs):
-        features_path = tdir / "features.npy"
-        labels_path   = tdir / "labels.npy"
-        ts_path       = tdir / "timestamps.npy"
+        features   = np.load(tdir / "features.npy",   mmap_mode="r")  # (total, n_features)
+        labels     = np.load(tdir / "labels.npy",     mmap_mode="r")  # (total,)
+        ts_arr     = np.load(tdir / "timestamps.npy", mmap_mode="r")  # (total,)
 
-        if not features_path.exists() or not labels_path.exists():
-            # Skip tickers with missing core artifacts (e.g. too few samples)
-            continue
+        # Build rolling windows: (n, lookback_L, n_features) → transpose → (n, n_features, lookback_L)
+        windows = np.stack(
+            [features[p - lookback_L + 1: p + 1] for p in positions],
+            axis=0,
+        ).transpose(0, 2, 1).astype(np.float32)
 
-        X_t  = np.load(features_path)          # (n, n_features, lookback_L) or (n, n_features)
-        y_t  = np.load(labels_path).astype(np.int64)
-        ts_t = np.load(ts_path) if ts_path.exists() else np.full(len(y_t), np.datetime64("NaT"))
-
-        # Validate / record feature shape
-        if reference_shape is None:
-            reference_shape = X_t.shape[1:]
-        elif X_t.shape[1:] != reference_shape:
-            raise ValueError(
-                f"Feature shape mismatch for ticker {tdir.name}: "
-                f"expected {reference_shape}, got {X_t.shape[1:]}"
-            )
-
-        n = len(y_t)
-        ticker_map[tid] = tdir.name
-
-        # Load per-sample label metadata
+        # Load label metadata
         meta_path = tdir / "label_metadata.jsonl"
         if meta_path.exists():
             with meta_path.open("r", encoding="utf-8") as f:
-                ticker_metas: List[Optional[dict]] = [
+                all_metas = [
                     json.loads(line) if line.strip() not in ("", "null") else None
                     for line in f
                 ]
-            # Guard against length mismatches
-            if len(ticker_metas) != n:
-                ticker_metas = [None] * n
+            ticker_metas = [
+                all_metas[p] if p < len(all_metas) else None
+                for p in positions
+            ]
         else:
-            ticker_metas = [None] * n
+            ticker_metas = [None] * len(positions)
 
-        Xs.append(X_t)
-        ys.append(y_t)
-        tss.append(ts_t)
-        tid_arrs.append(np.full(n, tid, dtype=np.int64))
+        ticker_map[tid] = ticker
+        X_parts.append(windows)
+        y_parts.append(labels[positions].astype(np.int64))
+        ts_parts.append(ts_arr[positions])
+        tid_parts.append(np.full(len(positions), tid, dtype=np.int64))
         metas_all.extend(ticker_metas)
 
-    if not Xs:
-        raise RuntimeError(
-            f"No valid ticker artifacts could be loaded from {split_dir}"
-        )
+    X          = np.concatenate(X_parts,   axis=0)
+    y          = np.concatenate(y_parts,   axis=0)
+    timestamps = np.concatenate(ts_parts,  axis=0)
+    tids       = np.concatenate(tid_parts, axis=0)
 
-    X   = np.concatenate(Xs,       axis=0)
-    y   = np.concatenate(ys,       axis=0)
-    ts  = np.concatenate(tss,      axis=0)
-    tids = np.concatenate(tid_arrs, axis=0)
-
-    return X, y, ts, tids, metas_all, ticker_map
+    return X, y, timestamps, tids, metas_all, ticker_map

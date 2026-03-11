@@ -15,3 +15,5 @@ cache/
 **debug.log
 **/latest-run*
 **/wandb/run-*
+
+checkpoints/

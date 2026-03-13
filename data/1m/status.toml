@@ -1,0 +1,55 @@
+[AAPL]
+last_retrieved = "2026-03-10"
+missing = []
+
+[AAPL.days]
+"2026-03-09" = "ok"
+"2026-03-10" = "ok"
+
+[AMD]
+last_retrieved = "2026-03-10"
+missing = []
+
+[AMD.days]
+"2026-03-09" = "ok"
+"2026-03-10" = "ok"
+
+[APP]
+last_retrieved = "2026-03-10"
+missing = []
+
+[APP.days]
+"2026-03-09" = "ok"
+"2026-03-10" = "ok"
+
+[MSFT]
+last_retrieved = "2026-03-10"
+missing = []
+
+[MSFT.days]
+"2026-03-09" = "ok"
+"2026-03-10" = "ok"
+
+[MU]
+last_retrieved = "2026-03-10"
+missing = []
+
+[MU.days]
+"2026-03-09" = "ok"
+"2026-03-10" = "ok"
+
+[NVDA]
+last_retrieved = "2026-03-10"
+missing = []
+
+[NVDA.days]
+"2026-03-09" = "ok"
+"2026-03-10" = "ok"
+
+[WDC]
+last_retrieved = "2026-03-10"
+missing = []
+
+[WDC.days]
+"2026-03-09" = "ok"
+"2026-03-10" = "ok"

@@ -294,7 +294,12 @@ def prepare_experiment(
 # Default component wiring
 # ---------------------------------------------------------------------------
 
-def build_default_components(interval: str = "1d"):
+def build_default_components(
+    interval: str = "1d",
+    volatility_scaled_barrier: bool = True,
+    vol_scale_min: float = 0.5,
+    vol_scale_max: float = 2.0,
+):
     """
     Return (sampler, fe, labeler, cfg) wired with sensible defaults,
     scaled to the given bar interval.
@@ -319,14 +324,20 @@ def build_default_components(interval: str = "1d"):
     fe = StandardizedFeatures(
         base=IntradayTA10Features(volume_output="log1p", include_time_features=True)
     )
+    vol_mode = "ticker_std" if volatility_scaled_barrier else "none"
+
     labeler = TripleBarrierLabeler(
-        name=f"tb_w{width_minutes}_h{height_pct}pct",
+        name=f"tb_w{width_minutes}_h{height_pct}pct_{vol_mode}",
         width_minutes=width_minutes,
         height=height_pct / 100,
         drop_time_exit=False,
+        volatility_scale_mode=vol_mode,
+        vol_scale_min=float(vol_scale_min),
+        vol_scale_max=float(vol_scale_max),
     )
+    exp_suffix = f"_VS{vol_scale_min:g}-{vol_scale_max:g}" if volatility_scaled_barrier else ""
     cfg = ExperimentConfig(
-        experiment_name=f"tb_L{L}_w{width_minutes}_h{height_pct}_TBPD{target_bars_pd}",
+        experiment_name=f"tb_L{L}_w{width_minutes}_h{height_pct}_TBPD{target_bars_pd}{exp_suffix}",
         sampler=asdict(sampler),
         feature_engineer=fe.get_meta(),
         labeler=asdict(labeler),

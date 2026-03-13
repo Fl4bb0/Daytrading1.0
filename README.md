@@ -2,6 +2,18 @@
 uv run --env-file .env.run path-to-file
 
 
+## Daily hybrid data sync (Yahoo recent + Alpha Vantage history)
+
+Set `ALPHAVANTAGE_API_KEY` and run one ticker per day:
+
+uv run --env-file .env.run scripts/run_daily_update.py --ticker AAPL
+
+Optional:
+
+uv run --env-file .env.run scripts/run_daily_update.py --ticker NVDA --store data/1m --budget 25
+uv run --env-file .env.run scripts/run_daily_update.py --ticker AMD --no-roll-forward
+
+
 ## Full pipeline (Yahoo data)
 
 ### Step 1 — Prepare the experiment (feature engineering, labelling, sampling):

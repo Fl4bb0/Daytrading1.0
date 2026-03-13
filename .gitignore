@@ -17,3 +17,5 @@ cache/
 **/wandb/run-*
 
 checkpoints/
+
+ignore/

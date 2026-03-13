@@ -29,7 +29,7 @@ TripleBarrierLabeler    — Labeler subclass: fit() is a no-op, transform() labe
 from __future__ import annotations
 
 import dataclasses
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional, Tuple, Union
 
 import numpy as np
@@ -52,6 +52,7 @@ class TripleBarLabel:
     label: int                    # 0 = stop-loss, 1 = time exit, 2 = take-profit
     pnl_fraction: float           # (exit_price - entry_price) / entry_price
     pnl_absolute: float           # exit_price - entry_price  ($ per share)
+    height_used: float            # effective fractional barrier half-width used
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +158,7 @@ def triple_barrier_label(
         label=int(label),
         pnl_fraction=pnl_frac,
         pnl_absolute=pnl_abs,
+        height_used=float(height),
     )
 
 
@@ -190,9 +192,45 @@ class TripleBarrierLabeler(Labeler):
     height: float = 0.01
     drop_time_exit: bool = False
     show_progress: bool = True
+    volatility_scale_mode: str = "none"   # "none" | "ticker_std"
+    vol_scale_min: float = 0.5
+    vol_scale_max: float = 2.0
+    _fit_reference_vol: Optional[float] = field(default=None, init=False, repr=False)
+
+    @staticmethod
+    def _series_volatility(df: pd.DataFrame) -> Optional[float]:
+        if "close" not in df.columns or len(df) < 3:
+            return None
+        r = df["close"].astype(float).pct_change().dropna()
+        if len(r) == 0:
+            return None
+        v = float(r.std())
+        if not np.isfinite(v) or v <= 0.0:
+            return None
+        return v
+
+    def _effective_height(self, df: pd.DataFrame) -> float:
+        base = float(self.height)
+        if self.volatility_scale_mode == "none":
+            return base
+        if self.volatility_scale_mode != "ticker_std":
+            raise ValueError(
+                f"Unknown volatility_scale_mode={self.volatility_scale_mode!r}. "
+                f"Expected 'none' or 'ticker_std'."
+            )
+
+        ref = self._fit_reference_vol
+        cur = self._series_volatility(df)
+        if ref is None or cur is None or ref <= 0.0:
+            return base
+
+        raw_scale = cur / ref
+        scale = float(np.clip(raw_scale, self.vol_scale_min, self.vol_scale_max))
+        return base * scale
 
     def fit(self, df: pd.DataFrame) -> "TripleBarrierLabeler":
-        # No data-driven parameters — barrier geometry is fully specified at construction.
+        df = ensure_utc_sorted_index(df)
+        self._fit_reference_vol = self._series_volatility(df)
         return self
 
     def transform(
@@ -209,6 +247,7 @@ class TripleBarrierLabeler(Labeler):
         """
         df = ensure_utc_sorted_index(df)
         n  = len(df)
+        height_used = self._effective_height(df)
         labels: np.ndarray         = np.full(n, -1, dtype=np.int8)
         metadata: List[Optional[dict]] = [None] * n
 
@@ -222,12 +261,14 @@ class TripleBarrierLabeler(Labeler):
             res = triple_barrier_label(
                 df, time_start=t,
                 width=self.width_minutes,
-                height=self.height,
+                height=height_used,
             )
             if res is None:
                 continue
 
             metadata[i] = dataclasses.asdict(res)
+            metadata[i]["volatility_scale_mode"] = self.volatility_scale_mode
+            metadata[i]["fit_reference_vol"] = self._fit_reference_vol
 
             lab = int(res.label)
             if self.drop_time_exit and lab == 1:

@@ -12,6 +12,8 @@ return_stats.csv        — overall split-level return / profit statistics
 equity_curve.csv        — cumulative portfolio PnL over time
 label_distribution.csv  — per-ticker count of y_true and y_pred per class
 confusion_matrix.csv    — 3×3 confusion matrix (rows=true, cols=pred)
+directional_drift.csv   — per-ticker directional drift diagnostics
+directional_calibration.csv — confidence-binned directional calibration (if probabilities exist)
 run_meta.csv            — experiment metadata (model, split, timestamp, counts)
 """
 from __future__ import annotations
@@ -170,6 +172,7 @@ def evaluate_experiment(
     # 6. return_stats.csv
     # ------------------------------------------------------------------
     ret_stats = compute_return_stats(y_pred=y_pred, metas=metas)
+    ret_stats.update(_overall_directional_summary(pred_df))
     pd.DataFrame([ret_stats]).to_csv(out_dir / "return_stats.csv", index=False)
 
     # ------------------------------------------------------------------
@@ -203,7 +206,16 @@ def evaluate_experiment(
     cm_df.to_csv(out_dir / "confusion_matrix.csv")
 
     # ------------------------------------------------------------------
-    # 10. run_meta.csv
+    # 10. directional drift + calibration reports
+    # ------------------------------------------------------------------
+    _compute_directional_drift(pred_df).to_csv(out_dir / "directional_drift.csv", index=False)
+
+    calib = _compute_directional_calibration(pred_df)
+    if calib is not None:
+        calib.to_csv(out_dir / "directional_calibration.csv", index=False)
+
+    # ------------------------------------------------------------------
+    # 11. run_meta.csv
     # ------------------------------------------------------------------
     experiment_id = exp_dir.name
     run_meta = {
@@ -263,3 +275,100 @@ def _save_equity_curve(pred_df: pd.DataFrame, out_path: Path) -> None:
     eq_df = pd.DataFrame(rows)
     eq_df["cumulative_pnl_pct"] = eq_df["trade_pnl_pct"].cumsum()
     eq_df.to_csv(out_path, index=False)
+
+
+def _direction_from_label(s: pd.Series) -> pd.Series:
+    return s.map({0: -1, 1: 0, 2: 1}).astype(float)
+
+
+def _overall_directional_summary(pred_df: pd.DataFrame) -> dict:
+    d = pred_df[pred_df["y_true"].isin([0, 2])]
+    if len(d) == 0:
+        return {
+            "directional_true_n": 0,
+            "directional_accuracy": 0.0,
+            "directional_opposite_rate": 0.0,
+        }
+    opposite = ((d["y_true"] == 0) & (d["y_pred"] == 2)) | ((d["y_true"] == 2) & (d["y_pred"] == 0))
+    return {
+        "directional_true_n": int(len(d)),
+        "directional_accuracy": float((d["y_true"] == d["y_pred"]).mean()),
+        "directional_opposite_rate": float(opposite.mean()),
+    }
+
+
+def _compute_directional_drift(pred_df: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    grouped = [("ALL", pred_df), *[(str(t), g) for t, g in pred_df.groupby("ticker")]]
+    for ticker, sub in grouped:
+        dir_true = _direction_from_label(sub["y_true"])
+        dir_pred = _direction_from_label(sub["y_pred"])
+        true_dir_mask = sub["y_true"].isin([0, 2])
+        pred_dir_mask = sub["y_pred"].isin([0, 2])
+
+        directional = sub[true_dir_mask]
+        opposite = ((directional["y_true"] == 0) & (directional["y_pred"] == 2)) | ((directional["y_true"] == 2) & (directional["y_pred"] == 0))
+
+        signed_pnl_pct = np.nan
+        has_pnl = sub["pnl_fraction"].notna() & pred_dir_mask
+        if bool(has_pnl.any()):
+            signed = np.where(sub.loc[has_pnl, "y_pred"] == 0, -1.0, 1.0) * sub.loc[has_pnl, "pnl_fraction"].astype(float)
+            signed_pnl_pct = float(np.mean(signed) * 100.0)
+
+        rows.append({
+            "ticker": ticker,
+            "n": int(len(sub)),
+            "n_true_directional": int(true_dir_mask.sum()),
+            "n_pred_directional": int(pred_dir_mask.sum()),
+            "true_short_rate": float((sub["y_true"] == 0).mean()),
+            "true_buy_rate": float((sub["y_true"] == 2).mean()),
+            "pred_short_rate": float((sub["y_pred"] == 0).mean()),
+            "pred_buy_rate": float((sub["y_pred"] == 2).mean()),
+            "direction_bias_pred_minus_true": float((dir_pred - dir_true).mean()),
+            "directional_accuracy": float((directional["y_true"] == directional["y_pred"]).mean()) if len(directional) else 0.0,
+            "directional_opposite_rate": float(opposite.mean()) if len(directional) else 0.0,
+            "avg_signed_pnl_pct_pred": signed_pnl_pct,
+        })
+    return pd.DataFrame(rows)
+
+
+def _compute_directional_calibration(pred_df: pd.DataFrame) -> Optional[pd.DataFrame]:
+    pcols = ["prob_SHORT", "prob_HOLD", "prob_BUY"]
+    if not all(c in pred_df.columns for c in pcols):
+        return None
+
+    d = pred_df[pred_df["y_pred"].isin([0, 2])].copy()
+    if len(d) == 0:
+        return pd.DataFrame(columns=[
+            "ticker", "confidence_bin", "n", "avg_confidence",
+            "directional_accuracy", "directional_opposite_rate", "avg_signed_pnl_pct",
+        ])
+
+    conf = np.where(d["y_pred"] == 0, d["prob_SHORT"], d["prob_BUY"])
+    d["confidence"] = conf.astype(float)
+    bins = [0.0, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    d["confidence_bin"] = pd.cut(d["confidence"], bins=bins, include_lowest=True)
+
+    rows = []
+    grouped = [("ALL", d), *[(str(t), g) for t, g in d.groupby("ticker")]]
+    for ticker, sub in grouped:
+        for b, g in sub.groupby("confidence_bin", observed=False):
+            if len(g) == 0:
+                continue
+            opposite = ((g["y_true"] == 0) & (g["y_pred"] == 2)) | ((g["y_true"] == 2) & (g["y_pred"] == 0))
+            has_pnl = g["pnl_fraction"].notna()
+            avg_signed_pnl_pct = np.nan
+            if bool(has_pnl.any()):
+                signed = np.where(g.loc[has_pnl, "y_pred"] == 0, -1.0, 1.0) * g.loc[has_pnl, "pnl_fraction"].astype(float)
+                avg_signed_pnl_pct = float(np.mean(signed) * 100.0)
+            rows.append({
+                "ticker": ticker,
+                "confidence_bin": str(b),
+                "n": int(len(g)),
+                "avg_confidence": float(g["confidence"].mean()),
+                "directional_accuracy": float((g["y_true"] == g["y_pred"]).mean()),
+                "directional_opposite_rate": float(opposite.mean()),
+                "avg_signed_pnl_pct": avg_signed_pnl_pct,
+            })
+    return pd.DataFrame(rows)
+

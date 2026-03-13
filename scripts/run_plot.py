@@ -11,6 +11,8 @@ Figures saved to <eval-dir>/figures/
 06_equity_curve.png            — cumulative PnL over time  (skipped if no trades)
 07_trade_stats.png             — per-ticker buy/short trade count + avg profit
 08_prob_distributions.png      — predicted class probability histograms (if available)
+09_directional_drift.png       — per-ticker directional drift / opposite-rate diagnostics
+10_directional_calibration.png — confidence-binned directional accuracy (if available)
 
 Usage
 -----
@@ -28,6 +30,7 @@ def _load_csvs(eval_dir: Path) -> dict:
     required = [
         "classification_metrics", "confusion_matrix", "label_distribution",
         "predictions", "trade_stats", "return_stats", "equity_curve", "run_meta",
+        "directional_drift", "directional_calibration",
     ]
     dfs = {}
     for name in required:
@@ -358,6 +361,82 @@ def plot_prob_distributions(dfs: dict, out_dir: Path, show: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 09 — Directional drift diagnostics
+# ---------------------------------------------------------------------------
+def plot_directional_drift(dfs: dict, out_dir: Path, show: bool) -> None:
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    if "directional_drift" not in dfs:
+        return
+
+    df = dfs["directional_drift"].copy()
+    if df.empty:
+        return
+    df = df[df["ticker"] != "ALL"] if "ticker" in df.columns else df
+    if df.empty:
+        return
+
+    tickers = df["ticker"].astype(str).tolist()
+    x = np.arange(len(tickers))
+    w = 0.35
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    fig.suptitle("Directional Drift Diagnostics", fontweight="bold")
+
+    axes[0].bar(x - w / 2, df["true_buy_rate"],  w, label="true buy rate",  color="#98df8a")
+    axes[0].bar(x + w / 2, df["pred_buy_rate"],  w, label="pred buy rate",  color="#2ca02c")
+    axes[0].bar(x - w / 2, -df["true_short_rate"], w, label="true short rate", color="#ff9896")
+    axes[0].bar(x + w / 2, -df["pred_short_rate"], w, label="pred short rate", color="#d62728")
+    axes[0].axhline(0, color="black", linewidth=0.8)
+    axes[0].set_xticks(x); axes[0].set_xticklabels(tickers)
+    axes[0].set_title("Buy/Short Rate (short shown below zero)")
+    axes[0].set_ylabel("Rate")
+    axes[0].legend(fontsize=8)
+    axes[0].grid(axis="y", alpha=0.3)
+
+    opp = df["directional_opposite_rate"].fillna(0.0)
+    bars = axes[1].bar(tickers, opp, color="#9467bd")
+    axes[1].set_ylim(0, 1.0)
+    axes[1].set_title("Opposite Direction Rate")
+    axes[1].set_ylabel("Rate")
+    axes[1].grid(axis="y", alpha=0.3)
+    for b, v in zip(bars, opp):
+        axes[1].text(b.get_x() + b.get_width() / 2, b.get_height() + 0.01, f"{v:.2f}", ha="center", va="bottom", fontsize=8)
+
+    _save(fig, out_dir / "09_directional_drift.png", show)
+
+
+# ---------------------------------------------------------------------------
+# 10 — Directional calibration curve-ish bars
+# ---------------------------------------------------------------------------
+def plot_directional_calibration(dfs: dict, out_dir: Path, show: bool) -> None:
+    import matplotlib.pyplot as plt
+
+    if "directional_calibration" not in dfs:
+        return
+    df = dfs["directional_calibration"].copy()
+    if df.empty:
+        return
+
+    if "ticker" in df.columns:
+        df = df[df["ticker"] == "ALL"]
+    if df.empty:
+        return
+
+    df = df.sort_values("avg_confidence")
+    fig, ax = plt.subplots(figsize=(10, 4.5))
+    ax.bar(df["confidence_bin"].astype(str), df["directional_accuracy"], color="#4C72B0", alpha=0.9)
+    ax.plot(df["confidence_bin"].astype(str), df["avg_confidence"], color="#dd8452", marker="o", label="avg confidence")
+    ax.set_ylim(0, 1.0)
+    ax.set_ylabel("Score")
+    ax.set_title("Directional Calibration (ALL tickers)", fontweight="bold")
+    ax.grid(axis="y", alpha=0.3)
+    ax.legend()
+    _save(fig, out_dir / "10_directional_calibration.png", show)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 def main() -> None:
@@ -403,6 +482,8 @@ def main() -> None:
     plot_equity_curve(dfs, out_dir, args.show)
     plot_trade_stats(dfs, out_dir, args.show)
     plot_prob_distributions(dfs, out_dir, args.show)
+    plot_directional_drift(dfs, out_dir, args.show)
+    plot_directional_calibration(dfs, out_dir, args.show)
 
     saved = list(out_dir.glob("*.png"))
     print(f"\nDone — {len(saved)} figures saved to {out_dir}")

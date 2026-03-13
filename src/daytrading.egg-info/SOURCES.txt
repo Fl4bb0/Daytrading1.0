@@ -22,9 +22,11 @@ src/kvant/features/__init__.py
 src/kvant/features/base.py
 src/kvant/features/feature_engineering.py
 src/kvant/kdata/__init__.py
+src/kvant/kdata/alpha_vantage_retriever.py
 src/kvant/kdata/news.py
 src/kvant/kdata/retriever.py
 src/kvant/kdata/store.py
+src/kvant/kdata/sync.py
 src/kvant/kdata/yahoo_retriever.py
 src/kvant/kmarket_info/__init__.py
 src/kvant/kmarket_info/is_nyse_open.py
@@ -54,3 +56,5 @@ src/kvant/training/trainer.py
 src/kvant/utils/__init__.py
 src/kvant/utils/index_utils.py
 src/kvant/utils/time_utils.py
+tests/test_alpha_vantage_retriever.py
+tests/test_daily_sync.py

@@ -188,6 +188,7 @@ def prepare_experiment(
     # 3. Process each ticker on its full history (train + val + test)
     # ------------------------------------------------------------------
     valid_pos_by_ticker: Dict[str, np.ndarray] = {}
+    close_ts_by_ticker: Dict[str, np.ndarray] = {}
     density_rows: List[dict] = []
 
     for t in tqdm.tqdm(tickers_all, desc="Preparing tickers"):
@@ -211,8 +212,13 @@ def prepare_experiment(
             raise RuntimeError(f"Length mismatch for {t!r}: X={len(X)}, y={len(y)}")
 
         ts        = df_s.index.to_numpy()
+        close_ts  = np.array([
+            as_dt64_utc_naive(m.get("bar_close_time")) if isinstance(m, dict) else np.datetime64("NaT")
+            for m in y_meta
+        ], dtype="datetime64[ns]")
         valid_pos = valid_target_positions(y, cfg.lookback_L)
         valid_pos_by_ticker[t] = valid_pos
+        close_ts_by_ticker[t] = close_ts
 
         # Diagnostics
         n_raw, n_sampled = int(len(df_full)), int(len(df_s))
@@ -256,16 +262,61 @@ def prepare_experiment(
     # ------------------------------------------------------------------
     # 4. Build and save train/val/test index arrays  (tid, position)
     # ------------------------------------------------------------------
+    leakage_rows: List[dict] = []
+
     def _build_index(tickers: List[str], split: str) -> np.ndarray:
         rows = []
+        split_dropped_cross_boundary = 0
+        split_dropped_missing_exit = 0
         for t in tickers:
             ts_t      = np.load(tickers_root / t / "timestamps.npy", mmap_mode="r")
+            close_t   = close_ts_by_ticker[t]
             vp        = valid_pos_by_ticker[t]
             tid       = ticker_id[t]
             val_s, test_s = boundaries[t]
+
+            n_valid_targets = int(len(vp))
+            n_entry_in_split = 0
+            n_kept = 0
+            n_dropped_cross_boundary = 0
+            n_dropped_missing_exit = 0
+
             for p in vp:
-                if in_split(ts_t[int(p)], split, val_s, test_s):
+                entry_ts = ts_t[int(p)]
+                exit_ts = close_t[int(p)]
+                in_entry = in_split(entry_ts, split, val_s, test_s)
+                if not in_entry:
+                    continue
+
+                n_entry_in_split += 1
+                if np.isnat(exit_ts):
+                    n_dropped_missing_exit += 1
+                    continue
+
+                in_exit = in_split(exit_ts, split, val_s, test_s)
+                if in_entry and in_exit:
                     rows.append((tid, int(p)))
+                    n_kept += 1
+                else:
+                    n_dropped_cross_boundary += 1
+
+            split_dropped_cross_boundary += n_dropped_cross_boundary
+            split_dropped_missing_exit += n_dropped_missing_exit
+            leakage_rows.append({
+                "split": split,
+                "ticker": t,
+                "tid": tid,
+                "n_valid_targets": n_valid_targets,
+                "n_entry_in_split": n_entry_in_split,
+                "n_kept": n_kept,
+                "n_dropped_cross_boundary": n_dropped_cross_boundary,
+                "n_dropped_missing_exit": n_dropped_missing_exit,
+            })
+
+        if split_dropped_cross_boundary:
+            print(f"  [{split}] dropped {split_dropped_cross_boundary} labels crossing split boundary")
+        if split_dropped_missing_exit:
+            print(f"  [{split}] dropped {split_dropped_missing_exit} labels with missing exit timestamp")
         return np.asarray(rows, dtype=np.int32)
 
     index_train = _build_index(tickers_train, "train")
@@ -275,6 +326,12 @@ def prepare_experiment(
     np.save(exp_dir / "index_train.npy", index_train)
     np.save(exp_dir / "index_val.npy",   index_val)
     np.save(exp_dir / "index_test.npy",  index_test)
+
+    leakage_df = pd.DataFrame(leakage_rows)
+    leakage_df.to_csv(exp_dir / "leakage_report.csv", index=False)
+    (exp_dir / "leakage_report.json").write_text(
+        json.dumps(leakage_rows, indent=2, default=json_default)
+    )
 
     print(f"\nPrepared experiment → {exp_dir}")
     print(f"  train : {len(index_train)} samples")

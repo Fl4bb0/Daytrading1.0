@@ -9,8 +9,10 @@ are placed:
   - Lower barrier:   entry * (1 - height)   → label 0 (SHORT / stop-loss)
   - Vertical barrier: t + width_minutes      → label 1 (HOLD / time exit)
 
-The earliest barrier hit determines the label. If the lower and upper barriers
-are both hit in the same bar, stop-loss wins (conservative).
+The earliest barrier hit determines the label. Barrier hits are evaluated on
+future bars only (starting at t+1), so the entry bar itself never determines
+the label. If the lower and upper barriers are both hit in the same future bar,
+stop-loss wins (conservative).
 
 Bars where entry/exit fall outside the NYSE trading window or have invalid
 prices receive label -1 (abstain).
@@ -90,6 +92,7 @@ def triple_barrier_label(
     Returns
     -------
     TripleBarLabel, or None if the bar is invalid / outside trading hours.
+    Barrier-hit detection starts from the next bar after entry (strictly future bars).
     """
     if data is None or data.empty:
         return None
@@ -108,7 +111,7 @@ def triple_barrier_label(
     # Vertical barrier: last bar whose timestamp <= entry + width minutes
     end_target = entry_ts + pd.Timedelta(minutes=int(width))
     end_pos = data.index.searchsorted(end_target, side="right") - 1
-    if end_pos < pos:
+    if end_pos <= pos:
         return None
 
     exit_ts_vertical = data.index[end_pos]
@@ -123,7 +126,8 @@ def triple_barrier_label(
 
     upper = entry_price * (1.0 + float(height))
     lower = entry_price * (1.0 - float(height))
-    path  = data.iloc[pos : end_pos + 1]
+    # Causal labeling: only bars after entry can trigger a barrier hit.
+    path  = data.iloc[pos + 1 : end_pos + 1]
 
     hit_up = path.index[path["high"] >= upper]
     hit_dn = path.index[path["low"]  <= lower]

@@ -23,41 +23,20 @@ _CHECKPOINTS_ROOT = Path(__file__).resolve().parents[1] / "checkpoints"
 def _load_split(exp_dir: Path, index: "np.ndarray", lookback_L: int) -> "tuple[np.ndarray, np.ndarray]":
     """
     Given an index array of shape (n, 2) with columns (tid, position),
-    slice a rolling window of length lookback_L ending at each position
+    slice a rolling window of length lookback_L immediately before each target
+    position p (i.e. bars [p-lookback_L, p))
     and return (X, y) with X shaped (n, n_features, lookback_L).
     """
-    import numpy as np
-    from collections import defaultdict
+    from kvant.utils.split_loader import load_split_from_index
 
-    tickers_root = exp_dir / "tickers"
-    ticker_dirs  = sorted(tickers_root.iterdir())
-    tid_to_dir   = {i: d for i, d in enumerate(ticker_dirs)}
-
-    by_tid: dict = defaultdict(list)
-    for tid, pos in index:
-        by_tid[int(tid)].append(int(pos))
-
-    X_parts, y_parts = [], []
-    for tid, positions in sorted(by_tid.items()):
-        tdir     = tid_to_dir[tid]
-        features = np.load(tdir / "features.npy", mmap_mode="r")  # (total_bars, n_features)
-        labels   = np.load(tdir / "labels.npy",   mmap_mode="r")  # (total_bars,)
-
-        windows = np.stack(
-            [features[p - lookback_L + 1 : p + 1] for p in positions],
-            axis=0,
-        )  # (n, lookback_L, n_features)
-
-        # Transpose to (n, n_features, lookback_L) — expected by all Conv/LSTM models
-        windows = windows.transpose(0, 2, 1)
-
-        X_parts.append(windows)
-        y_parts.append(labels[np.array(positions)].astype(np.int64))
-
-    X = np.concatenate(X_parts, axis=0)
-    y = np.concatenate(y_parts, axis=0)
-
-    return X, y
+    loaded = load_split_from_index(
+        exp_dir=exp_dir,
+        index=index,
+        lookback_L=lookback_L,
+        include_timestamps=False,
+        include_metadata=False,
+    )
+    return loaded.X, loaded.y
 
 
 def main():

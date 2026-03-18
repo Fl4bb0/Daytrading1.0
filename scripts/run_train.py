@@ -44,7 +44,7 @@ def main():
 
     parser = argparse.ArgumentParser(description="Train a kvant model.")
     parser.add_argument(
-        "--experiment-id", required=True,
+        "--experiment-id", default="last",
         help="Prepared experiment ID (sub-directory name under prepared/), or 'last'.",
     )
     parser.add_argument("--model",    default="conv1d", help="Model key: conv1d, conv3d, resnls, tsb.")

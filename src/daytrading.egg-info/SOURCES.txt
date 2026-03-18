@@ -55,6 +55,8 @@ src/kvant/training/pytorch_trainer.py
 src/kvant/training/trainer.py
 src/kvant/utils/__init__.py
 src/kvant/utils/index_utils.py
+src/kvant/utils/split_loader.py
 src/kvant/utils/time_utils.py
 tests/test_alpha_vantage_retriever.py
 tests/test_daily_sync.py
+tests/test_triple_barrier_labeling.py

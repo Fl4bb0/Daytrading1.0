@@ -2,8 +2,8 @@
 kdata.store — Local CSV store for accumulated 1-minute OHLCV data.
 
 Yahoo Finance only provides 7 days of 1-minute history. This module
-fetches Mon–Fri of the target week day-by-day, appends new bars to
-per-ticker CSVs, and maintains a status TOML that tracks:
+fetches all NYSE trading days in a rolling 7-day calendar window,
+appends new bars to per-ticker CSVs, and maintains a status TOML that tracks:
 
   - the last day successfully retrieved per ticker
   - any trading days that are missing (not yet fetched or outside
@@ -30,10 +30,8 @@ status.toml format
 
 Rules
 -----
-- Run on Sat/Sun        → fetch full Mon–Fri of the week just ended.
-- Run on Fri after close → same: fetch full Mon–Fri of current week.
-- Run on Mon–Thu (or Fri before close) → fetch Mon up to last *complete*
-  trading day (today excluded unless market has closed).
+- Targets all NYSE trading days in the last 7 calendar days (rolling window).
+- Today is included only after NYSE has closed; otherwise the window ends yesterday.
 - Any trading day that Yahoo returns no bars for is written as
   "unavailable" in status.toml (it was likely outside the 7-day window).
 - On subsequent runs, days already marked "ok" are skipped; days marked
@@ -144,16 +142,18 @@ class OHLCVStore:
         interval: str = "1m",
     ) -> WeeklyUpdateReport:
         """
-        Fetch Mon–Fri bars for the appropriate week and append to CSVs.
+        Fetch 1-minute bars for all NYSE trading days in a rolling 7-day window
+        and append to per-ticker CSVs.
 
         *now_utc* defaults to the current UTC time; pass an explicit value
         for testing or back-filling.
 
         Which days are targeted
         -----------------------
-        - Sat / Sun, or Fri after NYSE close → full Mon–Fri of that week.
-        - Mon–Thu, or Fri before/at NYSE close → Mon up to yesterday
-          (last complete trading day), plus today if market has closed.
+        - The window is the last 7 calendar days, ending on:
+          - today if NYSE has already closed, else
+          - yesterday.
+        - Only NYSE trading days within that window are targeted.
         Days already stored as "ok" are skipped. Days marked "unavailable"
         are retried if they are within Yahoo's 7-day rolling window.
         """
@@ -324,44 +324,25 @@ class OHLCVStore:
 
 def _target_trading_days(now_utc: pd.Timestamp) -> List[date]:
     """
-    Return the list of NYSE trading days to target for this run.
+    Return NYSE trading days inside the rolling last-7-calendar-days window.
 
-    Sat / Sun  → full Mon–Fri of the week just ended.
-    Fri after close, or Sat/Sun → full Mon–Fri of that week.
-    Mon–Thu, or Fri before/at close → Mon of current week up to and
-      including today only if NYSE has already closed; otherwise yesterday.
-    Also includes any earlier days in the same Mon–Fri window that are
-    trading days (handles holidays in the middle of the week).
+    The window end is NY-local today only if NYSE has already closed;
+    otherwise it ends at yesterday. The start is 6 days before end (inclusive).
     """
-    ny_now   = now_utc.tz_convert("America/New_York")
-    weekday  = ny_now.weekday()   # 0=Mon … 6=Sun
-    today    = ny_now.date()
+    ny_now = now_utc.tz_convert("America/New_York")
+    today = ny_now.date()
 
-    # Determine which Monday to anchor on
-    if weekday == 5:   # Saturday → week just ended
-        monday = today - timedelta(days=5)
-    elif weekday == 6: # Sunday → week just ended
-        monday = today - timedelta(days=6)
+    close_ts = nyse_market_close_today(now_utc)
+    if close_ts is not None and now_utc >= close_ts:
+        end_day = today
     else:
-        monday = today - timedelta(days=weekday)  # this week's Monday
+        end_day = today - timedelta(days=1)
 
-    # Determine the last day to include
-    if weekday in (5, 6):
-        # Weekend → include full Mon–Fri
-        last_day = monday + timedelta(days=4)
-    else:
-        # Weekday: include today only if market has already closed
-        close_ts = nyse_market_close_today(now_utc)
-        if close_ts is not None and now_utc >= close_ts:
-            last_day = today
-        else:
-            # Market still open or not a trading day: stop at yesterday
-            last_day = today - timedelta(days=1)
+    start_day = end_day - timedelta(days=6)
 
-    # Collect all NYSE trading days in [monday, last_day]
     days: List[date] = []
-    d = monday
-    while d <= last_day:
+    d = start_day
+    while d <= end_day:
         if is_nyse_trading_day(d):
             days.append(d)
         d += timedelta(days=1)

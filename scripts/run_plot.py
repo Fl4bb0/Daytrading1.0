@@ -437,8 +437,156 @@ def plot_directional_calibration(dfs: dict, out_dir: Path, show: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 11 — Backtest comparison: price + predictions vs buy-and-hold
+# ---------------------------------------------------------------------------
+def plot_backtest_comparison(dfs: dict, out_dir: Path, show: bool, max_tickers: int = 6) -> None:
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import pandas as pd
+
+    if "predictions" not in dfs:
+        return
+
+    pred_df = dfs["predictions"].copy()
+    if "timestamp" not in pred_df.columns or "ticker" not in pred_df.columns:
+        return
+
+    pred_df["timestamp"] = pd.to_datetime(pred_df["timestamp"], utc=True)
+    pred_df = pred_df.sort_values("timestamp")
+
+    # Try to load raw price data from data/1m/
+    store_dir = _PROJECT_ROOT / "data" / "1m"
+    if not store_dir.exists():
+        print("  [skip] No data/1m/ directory found — skipping backtest comparison.")
+        return
+
+    tickers = pred_df["ticker"].unique()
+    if len(tickers) > max_tickers:
+        # Pick tickers with most predictions
+        counts = pred_df["ticker"].value_counts()
+        tickers = counts.head(max_tickers).index.tolist()
+
+    n = len(tickers)
+    fig, axes = plt.subplots(n, 2, figsize=(18, 5 * n), squeeze=False)
+    fig.suptitle("Backtest: Model Predictions vs Buy-and-Hold", fontsize=16, fontweight="bold", y=1.01)
+
+    colour_map = {"SHORT": "#d62728", "HOLD": "#7f7f7f", "BUY": "#2ca02c"}
+    marker_map = {"SHORT": "v", "HOLD": "s", "BUY": "^"}
+
+    for row_idx, ticker in enumerate(tickers):
+        ax_price = axes[row_idx, 0]
+        ax_returns = axes[row_idx, 1]
+
+        # Load raw 1m price data
+        csv_path = store_dir / f"{ticker}.csv"
+        if not csv_path.exists():
+            ax_price.text(0.5, 0.5, f"No CSV for {ticker}", ha="center", va="center")
+            ax_returns.text(0.5, 0.5, f"No CSV for {ticker}", ha="center", va="center")
+            continue
+
+        raw = pd.read_csv(csv_path, parse_dates=["timestamp"], index_col="timestamp")
+        if raw.index.tz is None:
+            raw.index = raw.index.tz_localize("UTC")
+
+        # Filter to test period (timestamps in predictions)
+        ticker_preds = pred_df[pred_df["ticker"] == ticker].copy()
+        if ticker_preds.empty:
+            continue
+
+        t_min = ticker_preds["timestamp"].min() - pd.Timedelta(minutes=30)
+        t_max = ticker_preds["timestamp"].max() + pd.Timedelta(minutes=30)
+        price_slice = raw.loc[t_min:t_max].copy()
+
+        if price_slice.empty or "close" not in price_slice.columns:
+            continue
+
+        close = price_slice["close"]
+
+        # --- Left panel: price chart with prediction markers ---
+        ax_price.plot(close.index, close.values, color="#4C72B0", linewidth=0.8, alpha=0.8, label="Close")
+
+        for pred_name, colour in colour_map.items():
+            subset = ticker_preds[ticker_preds["y_pred_name"] == pred_name]
+            if subset.empty:
+                continue
+            # Match prediction timestamps to closest price
+            matched_prices = []
+            matched_times = []
+            for ts in subset["timestamp"]:
+                idx = close.index.searchsorted(ts)
+                if idx < len(close):
+                    matched_times.append(close.index[idx])
+                    matched_prices.append(close.iloc[idx])
+            if matched_prices:
+                ax_price.scatter(
+                    matched_times, matched_prices,
+                    c=colour, marker=marker_map[pred_name],
+                    s=30, alpha=0.7, label=f"Pred: {pred_name}", zorder=5,
+                )
+
+        ax_price.set_title(f"{ticker} — Price + Predictions", fontweight="bold")
+        ax_price.set_ylabel("Price ($)")
+        ax_price.legend(fontsize=7, loc="upper left")
+        ax_price.grid(alpha=0.3)
+        ax_price.tick_params(axis="x", rotation=30)
+
+        # --- Right panel: cumulative returns comparison ---
+        # Buy-and-hold: simple cumulative return from first to last bar
+        bnh_returns = close.pct_change().fillna(0)
+        bnh_cumulative = (1 + bnh_returns).cumprod() - 1
+
+        # Model strategy: apply prediction at each signal timestamp
+        # BUY → +1 position, SHORT → -1 position, HOLD → 0 (flat)
+        position_map = {"BUY": 1.0, "SHORT": -1.0, "HOLD": 0.0}
+        signal_series = pd.Series(0.0, index=close.index)
+        for _, pred_row in ticker_preds.iterrows():
+            ts = pred_row["timestamp"]
+            idx = close.index.searchsorted(ts)
+            if idx < len(close):
+                signal_series.iloc[idx] = position_map.get(pred_row["y_pred_name"], 0.0)
+
+        # Forward-fill signals until next signal
+        position = signal_series.replace(0.0, np.nan)
+        # Set first value to 0 (flat) if no signal yet
+        if pd.isna(position.iloc[0]):
+            position.iloc[0] = 0.0
+        position = position.ffill().fillna(0.0)
+
+        model_returns = position.shift(1).fillna(0.0) * bnh_returns
+        model_cumulative = (1 + model_returns).cumprod() - 1
+
+        ax_returns.plot(bnh_cumulative.index, bnh_cumulative.values * 100,
+                        color="#4C72B0", linewidth=1.5, label="Buy & Hold")
+        ax_returns.plot(model_cumulative.index, model_cumulative.values * 100,
+                        color="#DD8452", linewidth=1.5, label="Model Strategy")
+        ax_returns.axhline(0, color="black", linewidth=0.8, linestyle="--")
+        ax_returns.fill_between(model_cumulative.index, model_cumulative.values * 100, 0,
+                                where=model_cumulative.values >= 0, alpha=0.15, color="green")
+        ax_returns.fill_between(model_cumulative.index, model_cumulative.values * 100, 0,
+                                where=model_cumulative.values < 0, alpha=0.15, color="red")
+
+        final_bnh = float(bnh_cumulative.iloc[-1]) * 100
+        final_model = float(model_cumulative.iloc[-1]) * 100
+        ax_returns.set_title(
+            f"{ticker} — Returns: Model {final_model:+.2f}% vs B&H {final_bnh:+.2f}%",
+            fontweight="bold",
+        )
+        ax_returns.set_ylabel("Cumulative Return (%)")
+        ax_returns.legend(fontsize=8)
+        ax_returns.grid(alpha=0.3)
+        ax_returns.tick_params(axis="x", rotation=30)
+
+    plt.tight_layout()
+    _save(fig, out_dir / "11_backtest_comparison.png", show)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_PREPARED_ROOT = _PROJECT_ROOT / "prepared"
+
+
 def main() -> None:
     import matplotlib
     matplotlib.use("Agg")  # non-interactive by default; overridden if --show
@@ -446,8 +594,16 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Generate evaluation figures from run_predict.py CSVs.")
     parser.add_argument(
-        "--eval-dir", required=True,
-        help="Path to an eval directory produced by run_predict.py.",
+        "--eval-dir", default=None,
+        help="Path to an eval directory produced by run_predict.py. Defaults to last experiment's eval dir.",
+    )
+    parser.add_argument(
+        "--model", default="conv1d",
+        help="Model name used to find eval dir (default: conv1d).",
+    )
+    parser.add_argument(
+        "--split", default="test", choices=["train", "val", "test"],
+        help="Split used to find eval dir (default: test).",
     )
     parser.add_argument(
         "--out-dir", default=None,
@@ -462,9 +618,18 @@ def main() -> None:
     if args.show:
         matplotlib.use("TkAgg")
 
-    eval_dir = Path(args.eval_dir)
+    if args.eval_dir is not None:
+        eval_dir = Path(args.eval_dir)
+    else:
+        last_file = _PREPARED_ROOT / "last_experiment.txt"
+        if not last_file.exists():
+            raise SystemExit(f"No last_experiment.txt found in {_PREPARED_ROOT}. Pass --eval-dir explicitly.")
+        exp_id = last_file.read_text().strip()
+        eval_dir = _PREPARED_ROOT / exp_id / "eval" / f"{args.model}_{args.split}"
+        print(f"Auto-detected eval dir: {eval_dir}")
+
     if not eval_dir.exists():
-        raise SystemExit(f"Eval directory not found: {eval_dir}")
+        raise SystemExit(f"Eval directory not found: {eval_dir}. Run run_predict.py first.")
 
     out_dir = Path(args.out_dir) if args.out_dir else eval_dir / "figures"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -484,6 +649,7 @@ def main() -> None:
     plot_prob_distributions(dfs, out_dir, args.show)
     plot_directional_drift(dfs, out_dir, args.show)
     plot_directional_calibration(dfs, out_dir, args.show)
+    plot_backtest_comparison(dfs, out_dir, args.show)
 
     saved = list(out_dir.glob("*.png"))
     print(f"\nDone — {len(saved)} figures saved to {out_dir}")

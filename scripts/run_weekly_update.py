@@ -22,8 +22,8 @@ def main() -> None:
         description="Weekly 1-minute data update — fetches Mon–Fri and appends to local CSVs."
     )
     parser.add_argument(
-        "--symbols", nargs="+", required=True, metavar="TICKER",
-        help="Yahoo Finance ticker symbols, e.g. AAPL MSFT NVDA.",
+        "--symbols", nargs="+", default=None, metavar="TICKER",
+        help="Yahoo Finance ticker symbols. Default: all tickers already in --store.",
     )
     parser.add_argument(
         "--store", default="data/1m", metavar="DIR",
@@ -42,10 +42,19 @@ def main() -> None:
     from kvant.kdata.retriever import YahooRetriever
     from kvant.kdata.store import OHLCVStore
 
+    store_path = Path(args.store).resolve()
+
+    # Default to all tickers already in the store
+    if args.symbols is None:
+        existing = sorted(p.stem for p in store_path.glob("*.csv"))
+        if not existing:
+            raise SystemExit(f"No CSV files found in {store_path} and no --symbols given.")
+        args.symbols = existing
+        print(f"Auto-detected tickers from store: {args.symbols}")
+
     retriever = YahooRetriever(interval=args.interval, prepost=args.prepost)
     store = OHLCVStore(args.store)
 
-    store_path = Path(args.store).resolve()
     print(f"Symbols : {', '.join(args.symbols)}")
     print(f"Store   : {store_path}")
     print(f"Interval: {args.interval}  |  prepost: {args.prepost}\n")

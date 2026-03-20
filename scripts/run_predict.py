@@ -6,6 +6,10 @@ checkpoint, computes all statistics, and writes CSV outputs.
 
 Usage
 -----
+  # Use defaults (last experiment, matching checkpoint):
+  python scripts/run_predict.py
+
+  # Override specific options:
   python scripts/run_predict.py \\
       --exp-dir   prepared/<experiment_id> \\
       --checkpoint checkpoints/<run>/     \\
@@ -20,6 +24,10 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_PREPARED_ROOT = _PROJECT_ROOT / "prepared"
+_CHECKPOINTS_ROOT = _PROJECT_ROOT / "checkpoints"
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -27,13 +35,13 @@ def main() -> None:
     )
     parser.add_argument(
         "--exp-dir",
-        required=True,
-        help="Path to a prepared experiment directory (contains train/val/test sub-dirs).",
+        default=None,
+        help="Path to a prepared experiment directory. Defaults to the last prepared experiment.",
     )
     parser.add_argument(
         "--checkpoint",
-        required=True,
-        help="Path to a saved model checkpoint (directory produced by model.save()).",
+        default=None,
+        help="Path to a saved model checkpoint. Defaults to checkpoints/<experiment-id>/<model>/.",
     )
     parser.add_argument(
         "--model",
@@ -62,6 +70,29 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # Resolve experiment directory
+    if args.exp_dir is not None:
+        exp_dir = Path(args.exp_dir)
+    else:
+        last_file = _PREPARED_ROOT / "last_experiment.txt"
+        if not last_file.exists():
+            raise SystemExit(f"No last_experiment.txt found in {_PREPARED_ROOT}. Pass --exp-dir explicitly.")
+        exp_id = last_file.read_text().strip()
+        exp_dir = _PREPARED_ROOT / exp_id
+        print(f"Auto-detected experiment: {exp_id}")
+
+    # Resolve checkpoint
+    if args.checkpoint is not None:
+        checkpoint = Path(args.checkpoint)
+    else:
+        checkpoint = _CHECKPOINTS_ROOT / exp_dir.name / args.model
+        if not (checkpoint / "weights.pt").exists():
+            raise SystemExit(
+                f"No checkpoint found at {checkpoint}/weights.pt. "
+                f"Train first with: uv run --env-file .env.run scripts/run_train.py --experiment-id {exp_dir.name}"
+            )
+        print(f"Auto-detected checkpoint: {checkpoint}")
+
     # Resolve model class from registry
     from kvant.models import MODEL_REGISTRY
     if args.model not in MODEL_REGISTRY:
@@ -70,9 +101,6 @@ def main() -> None:
             f"Available: {list(MODEL_REGISTRY.keys())}"
         )
     model_cls = MODEL_REGISTRY[args.model]
-
-    exp_dir    = Path(args.exp_dir)
-    checkpoint = Path(args.checkpoint)
 
     if args.out_dir is not None:
         out_dir = Path(args.out_dir)

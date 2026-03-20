@@ -6,16 +6,8 @@ checkpoint, computes all statistics, and writes CSV outputs.
 
 Usage
 -----
-  # Use defaults (last experiment, matching checkpoint):
   python scripts/run_predict.py
-
-  # Override specific options:
-  python scripts/run_predict.py \\
-      --exp-dir   prepared/<experiment_id> \\
-      --checkpoint checkpoints/<run>/     \\
-      --model     conv1d                  \\
-      --out-dir   results/<run>/          \\
-      --split     test
+  python scripts/run_predict.py --config pipeline.toml
 
 Available model names: conv1d, conv3d, resnls, tsb
 """
@@ -32,104 +24,53 @@ _CHECKPOINTS_ROOT = _PROJECT_ROOT / "checkpoints"
 
 
 def main() -> None:
-    pre_parser = argparse.ArgumentParser(add_help=False)
-    pre_parser.add_argument("--config", default=None, help="Path to pipeline TOML config.")
-    pre_args, remaining = pre_parser.parse_known_args()
-    cfg, cfg_path = load_pipeline_config(pre_args.config)
-
-    default_tickers = list_from_config(cfg["predict"].get("tickers"))
-    if default_tickers == []:
-        default_tickers = None
+    parser = argparse.ArgumentParser(
+        description="Run inference with a trained kvant model and save evaluation CSVs."
+    )
+    parser.add_argument("--config", default="pipeline.toml", help="Pipeline TOML config path.")
+    args = parser.parse_args()
+    cfg, cfg_path = load_pipeline_config(args.config)
 
     prepared_root = Path(cfg["paths"].get("prepared_root", str(_PREPARED_ROOT)))
     checkpoints_root = Path(cfg["paths"].get("checkpoints_root", str(_CHECKPOINTS_ROOT)))
+    predict_cfg = cfg["predict"]
 
-    parser = argparse.ArgumentParser(
-        description="Run inference with a trained kvant model and save evaluation CSVs.",
-        parents=[pre_parser],
-    )
-    parser.add_argument(
-        "--experiment-id",
-        default=cfg["predict"].get("experiment_id", "last"),
-        help="Prepared experiment ID under configured prepared_root, or 'last'.",
-    )
-    parser.add_argument(
-        "--exp-dir",
-        default=None,
-        help="Path to a prepared experiment directory. Defaults to the last prepared experiment.",
-    )
-    parser.add_argument(
-        "--checkpoint",
-        default=None,
-        help="Path to a saved model checkpoint. Defaults to checkpoints/<experiment-id>/<model>/.",
-    )
-    parser.add_argument(
-        "--model",
-        default=cfg["predict"].get("model", "conv1d"),
-        help="Model architecture key — one of: conv1d, conv3d, resnls, tsb.",
-    )
-    parser.add_argument(
-        "--out-dir",
-        default=None,
-        help=(
-            "Directory where evaluation CSVs will be written. "
-            "Defaults to <exp-dir>/eval/<model>_<split>/"
-        ),
-    )
-    parser.add_argument(
-        "--split",
-        default=cfg["predict"].get("split", "test"),
-        choices=["train", "val", "test"],
-        help="Which data split to evaluate (default: test).",
-    )
-    parser.add_argument(
-        "--tickers",
-        default=default_tickers,
-        nargs="+",
-        help="Optional: evaluate only these tickers (e.g. --tickers AAPL MSFT).",
-    )
-    args = parser.parse_args(remaining)
+    exp_id = str(predict_cfg.get("experiment_id", "last"))
+    if exp_id == "last":
+        last_file = prepared_root / "last_experiment.txt"
+        if not last_file.exists():
+            raise SystemExit(f"No last_experiment.txt found in {prepared_root}.")
+        exp_id = last_file.read_text().strip()
+        print(f"Auto-detected experiment: {exp_id}")
+    exp_dir = prepared_root / exp_id
 
-    # Resolve experiment directory
-    if args.exp_dir is not None:
-        exp_dir = Path(args.exp_dir)
-    else:
-        exp_id = args.experiment_id
-        if exp_id == "last":
-            last_file = prepared_root / "last_experiment.txt"
-            if not last_file.exists():
-                raise SystemExit(f"No last_experiment.txt found in {prepared_root}. Pass --exp-dir explicitly.")
-            exp_id = last_file.read_text().strip()
-            print(f"Auto-detected experiment: {exp_id}")
-        exp_dir = prepared_root / exp_id
+    model_name = str(predict_cfg.get("model", "conv1d"))
+    split = str(predict_cfg.get("split", "test"))
+    tickers = list_from_config(predict_cfg.get("tickers"))
+    tickers = tickers if tickers else None
+    required_buy_probability = float(predict_cfg.get("required_buy_probability", 0.0))
+    required_sell_probability = float(predict_cfg.get("required_sell_probability", 0.0))
 
-    # Resolve checkpoint
-    if args.checkpoint is not None:
-        checkpoint = Path(args.checkpoint)
-    else:
-        checkpoint = checkpoints_root / exp_dir.name / args.model
-        if not (checkpoint / "weights.pt").exists():
-            raise SystemExit(
-                f"No checkpoint found at {checkpoint}/weights.pt. "
-                f"Train first with: uv run --env-file .env.run scripts/run_train.py --experiment-id {exp_dir.name}"
-            )
-        print(f"Auto-detected checkpoint: {checkpoint}")
+    checkpoint = checkpoints_root / exp_dir.name / model_name
+    if not (checkpoint / "weights.pt").exists():
+        raise SystemExit(
+            f"No checkpoint found at {checkpoint}/weights.pt. "
+            f"Train first with: uv run --env-file .env.run scripts/run_train.py"
+        )
+    print(f"Auto-detected checkpoint: {checkpoint}")
 
     print(f"Config: {cfg_path}")
 
     # Resolve model class from registry
     from kvant.models import MODEL_REGISTRY
-    if args.model not in MODEL_REGISTRY:
+    if model_name not in MODEL_REGISTRY:
         raise SystemExit(
-            f"Unknown model '{args.model}'. "
+            f"Unknown model '{model_name}'. "
             f"Available: {list(MODEL_REGISTRY.keys())}"
         )
-    model_cls = MODEL_REGISTRY[args.model]
+    model_cls = MODEL_REGISTRY[model_name]
 
-    if args.out_dir is not None:
-        out_dir = Path(args.out_dir)
-    else:
-        out_dir = exp_dir / "eval" / f"{args.model}_{args.split}"
+    out_dir = exp_dir / "eval" / f"{model_name}_{split}"
 
     from kvant.evaluation import evaluate_experiment
     evaluate_experiment(
@@ -137,8 +78,10 @@ def main() -> None:
         model_path = checkpoint,
         model_cls  = model_cls,
         out_dir    = out_dir,
-        split      = args.split,
-        tickers    = args.tickers,
+        split      = split,
+        tickers    = tickers,
+        required_buy_probability=required_buy_probability,
+        required_sell_probability=required_sell_probability,
     )
 
 

@@ -49,6 +49,20 @@ class PipelineConfigTests(unittest.TestCase):
         self.assertEqual(list_from_config("AAPL"), ["AAPL"])
         self.assertEqual(list_from_config(["AAPL", "MSFT"]), ["AAPL", "MSFT"])
 
+    def test_validation_rejects_invalid_predict_probability_threshold(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_path = Path(tmpdir) / "pipeline.toml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "[predict]",
+                        "required_buy_probability = 1.5",
+                    ]
+                )
+            )
+            with self.assertRaises(SystemExit):
+                load_pipeline_config(cfg_path)
+
 
 if __name__ == "__main__":
     unittest.main()

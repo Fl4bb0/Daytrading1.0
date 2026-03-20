@@ -6,14 +6,8 @@ run_weekly_update.py) and runs the full preparation pipeline.
 
 Usage
 -----
-  # Use all tickers in data/1m (default)
   python scripts/run_prepare.py
-
-  # Restrict to specific tickers
-  python scripts/run_prepare.py --symbols AAPL MSFT
-
-  # Override store directory or split fractions
-  python scripts/run_prepare.py --store data/1m --val-frac 0.15 --test-frac 0.15
+  python scripts/run_prepare.py --config pipeline.toml
 """
 import argparse
 from pathlib import Path
@@ -27,48 +21,12 @@ _DEFAULT_INTERVAL = "1m"
 
 
 def main():
-    pre_parser = argparse.ArgumentParser(add_help=False)
-    pre_parser.add_argument("--config", default=None, help="Path to pipeline TOML config.")
-    pre_args, remaining = pre_parser.parse_known_args()
-    cfg, cfg_path = load_pipeline_config(pre_args.config)
+    parser = argparse.ArgumentParser(description="Prepare an ML experiment dataset.")
+    parser.add_argument("--config", default="pipeline.toml", help="Pipeline TOML config path.")
+    args = parser.parse_args()
+    cfg, cfg_path = load_pipeline_config(args.config)
 
-    default_symbols = list_from_config(cfg["data"].get("symbols"))
-    if default_symbols == []:
-        default_symbols = None
-
-    parser = argparse.ArgumentParser(
-        description="Prepare an ML experiment dataset.",
-        parents=[pre_parser],
-    )
-    parser.add_argument(
-        "--store", default=cfg["paths"].get("store", str(_DEFAULT_STORE)), metavar="DIR",
-        help="Directory with per-ticker CSVs from run_weekly_update.py.",
-    )
-    parser.add_argument(
-        "--symbols", nargs="+", default=default_symbols,
-        help="Restrict to these tickers. Default: config symbols or all CSVs in --store.",
-    )
-    parser.add_argument("--interval", type=str, default=cfg["data"].get("interval", _DEFAULT_INTERVAL))
-    parser.add_argument("--val-frac",  type=float, default=float(cfg["prepare"].get("val_frac", 0.15)))
-    parser.add_argument("--test-frac", type=float, default=float(cfg["prepare"].get("test_frac", 0.15)))
-    parser.add_argument("--lookback", type=int, default=int(cfg["prepare"].get("lookback", 20)))
-    parser.add_argument("--width-minutes", type=int, default=int(cfg["prepare"].get("width_minutes", 20)))
-    parser.add_argument("--height-pct", type=float, default=float(cfg["prepare"].get("height_pct", 0.5)))
-    parser.add_argument(
-        "--target-bars-per-day",
-        type=int,
-        default=int(cfg["prepare"].get("target_bars_per_day", 195)),
-    )
-    parser.add_argument(
-        "--volatility-scaled-barrier",
-        action=argparse.BooleanOptionalAction,
-        default=bool(cfg["prepare"].get("volatility_scaled_barrier", True)),
-    )
-    parser.add_argument("--vol-scale-min", type=float, default=float(cfg["prepare"].get("vol_scale_min", 0.5)))
-    parser.add_argument("--vol-scale-max", type=float, default=float(cfg["prepare"].get("vol_scale_max", 2.0)))
-    args = parser.parse_args(remaining)
-
-    store_dir = Path(args.store)
+    store_dir = Path(cfg["paths"].get("store", str(_DEFAULT_STORE)))
     if not store_dir.exists():
         raise SystemExit(f"Store directory not found: {store_dir}")
 
@@ -77,7 +35,8 @@ def main():
     if not available:
         raise SystemExit(f"No CSV files found in {store_dir}")
 
-    symbols = args.symbols if args.symbols else available
+    symbols = list_from_config(cfg["data"].get("symbols"))
+    symbols = symbols if symbols else available
     missing = [s for s in symbols if s not in available]
     if missing:
         raise SystemExit(f"Tickers not found in {store_dir}: {missing}")
@@ -85,6 +44,10 @@ def main():
     print(f"Store    : {store_dir.resolve()}")
     print(f"Config   : {cfg_path}")
     print(f"Tickers  : {symbols}")
+
+    interval = cfg["data"].get("interval", _DEFAULT_INTERVAL)
+    val_frac = float(cfg["prepare"].get("val_frac", 0.15))
+    test_frac = float(cfg["prepare"].get("test_frac", 0.15))
 
     # Load DataFrames from the local store
     from kvant.kdata.store import OHLCVStore
@@ -97,8 +60,8 @@ def main():
     train_dfs, val_dfs, test_dfs = {}, {}, {}
     for sym, df in ticker_dfs.items():
         n       = len(df)
-        n_test  = max(1, int(n * args.test_frac))
-        n_val   = max(1, int(n * args.val_frac))
+        n_test  = max(1, int(n * test_frac))
+        n_val   = max(1, int(n * val_frac))
         n_train = n - n_val - n_test
         if n_train <= 0:
             print(f"  Skipping {sym}: only {n} bars — not enough for the split fractions.")
@@ -112,14 +75,14 @@ def main():
         raise SystemExit("No tickers had enough data after splitting.")
 
     sampler, fe, labeler, cfg = build_default_components(
-        interval=args.interval,
-        volatility_scaled_barrier=args.volatility_scaled_barrier,
-        vol_scale_min=args.vol_scale_min,
-        vol_scale_max=args.vol_scale_max,
-        lookback_L=args.lookback,
-        width_minutes=args.width_minutes,
-        height_pct=args.height_pct,
-        target_bars_per_day=args.target_bars_per_day,
+        interval=interval,
+        volatility_scaled_barrier=bool(cfg["prepare"].get("volatility_scaled_barrier", True)),
+        vol_scale_min=float(cfg["prepare"].get("vol_scale_min", 0.5)),
+        vol_scale_max=float(cfg["prepare"].get("vol_scale_max", 2.0)),
+        lookback_L=int(cfg["prepare"].get("lookback", 20)),
+        width_minutes=int(cfg["prepare"].get("width_minutes", 20)),
+        height_pct=float(cfg["prepare"].get("height_pct", 0.5)),
+        target_bars_per_day=int(cfg["prepare"].get("target_bars_per_day", 195)),
     )
 
     PREPARED_DATA_ROOT.mkdir(parents=True, exist_ok=True)

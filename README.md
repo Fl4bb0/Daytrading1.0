@@ -2,25 +2,20 @@
 uv run --env-file .env.run path-to-file
 
 
-## Daily hybrid data sync (Yahoo recent + Alpha Vantage history)
+## Config-driven pipeline
 
-Set `ALPHAVANTAGE_API_KEY` and run one ticker per day:
+Set values once in `pipeline.toml`, then run scripts with default config:
 
-uv run --env-file .env.run scripts/run_daily_update.py --ticker AAPL
+uv run --env-file .env.run scripts/run_weekly_update.py
+uv run --env-file .env.run scripts/run_daily_update.py
+uv run --env-file .env.run scripts/run_prepare.py
+uv run --env-file .env.run scripts/run_train.py
+uv run --env-file .env.run scripts/run_predict.py
+uv run --env-file .env.run scripts/run_plot.py
 
-Optional:
+To use a different config file:
 
-uv run --env-file .env.run scripts/run_daily_update.py --ticker NVDA --store data/1m --budget 25
-uv run --env-file .env.run scripts/run_daily_update.py --ticker AMD --no-roll-forward
+uv run --env-file .env.run scripts/run_train.py --config pipeline.toml
 
 
-## Full pipeline (Yahoo data)
-
-### Step 1 — Prepare the experiment (feature engineering, labelling, sampling):
-uv run --env-file .env.run .\src\kvant\ml_prepare_data\prepare_experiment.py yahoo --symbols AAPL MSFT --period 7d --interval 1m
-
-### Step 2 — Run the labeller parameter sweep:
-uv run --env-file .env.run .\src\kvant\ml_prepare_data\plot_labelling\vary_labeller_runs.py yahoo --symbols AAPL MSFT --period 7d --interval 1m
-
-### Step 3 — Train the model on the prepared experiment:
-uv run --env-file .env.run .\src\kvant\ml_framework\scripts\train_experiment.py
+`run_daily_update.py` requires `ALPHAVANTAGE_API_KEY` in your env file.

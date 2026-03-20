@@ -5,9 +5,8 @@ scripts/run_daily_update.py — Quota-aware daily 1m sync for one ticker.
 
 Examples
 --------
-python scripts/run_daily_update.py --ticker AAPL
-python scripts/run_daily_update.py --ticker NVDA --store data/1m --state sync_state.json
-python scripts/run_daily_update.py --ticker AMD --budget 25 --no-roll-forward
+python scripts/run_daily_update.py
+python scripts/run_daily_update.py --config pipeline.toml
 """
 from __future__ import annotations
 
@@ -15,67 +14,68 @@ import argparse
 from pathlib import Path
 import sys
 
-from kvant.utils.pipeline_config import load_pipeline_config
+from kvant.utils.pipeline_config import list_from_config, load_pipeline_config
 
 
 def main() -> None:
-    pre_parser = argparse.ArgumentParser(add_help=False)
-    pre_parser.add_argument("--config", default=None, help="Path to pipeline TOML config.")
-    pre_args, remaining = pre_parser.parse_known_args()
-    cfg, cfg_path = load_pipeline_config(pre_args.config)
+    parser = argparse.ArgumentParser(description="Run daily sync jobs for configured tickers.")
+    parser.add_argument("--config", default="pipeline.toml", help="Pipeline TOML config path.")
+    args = parser.parse_args()
+    cfg, cfg_path = load_pipeline_config(args.config)
 
-    parser = argparse.ArgumentParser(description="Run one daily sync job for a single ticker.", parents=[pre_parser])
-    parser.add_argument("--ticker", required=True, help="Ticker symbol to update or onboard.")
-    parser.add_argument("--store", default=cfg["paths"].get("store", "data/1m"), help="Directory with per-ticker CSV files.")
-    parser.add_argument("--state", default=cfg["paths"].get("sync_state", "sync_state.json"), help="Sync-state filename under --store.")
-    parser.add_argument("--budget", type=int, default=int(cfg["data"].get("daily_budget", 25)), help="Max requests per day.")
-    parser.add_argument("--no-roll-forward", action="store_true", help="Skip window roll-forward when onboarding.")
-    parser.add_argument(
-        "--prepost",
-        action=argparse.BooleanOptionalAction,
-        default=bool(cfg["data"].get("prepost", False)),
-        help="Use Yahoo pre/post bars for recent day fetches.",
-    )
-    parser.add_argument("--interval", default=cfg["data"].get("interval", "1m"), help="Bar interval, e.g. 1m.")
-    args = parser.parse_args(remaining)
+    tickers = list_from_config(cfg["data"].get("symbols"))
+    if not tickers:
+        raise SystemExit("No symbols configured in [data].symbols in pipeline.toml")
+
+    store = cfg["paths"].get("store", "data/1m")
+    state = cfg["paths"].get("sync_state", "sync_state.json")
+    budget = int(cfg["data"].get("daily_budget", 25))
+    interval = str(cfg["data"].get("interval", "1m"))
+    prepost = bool(cfg["data"].get("prepost", False))
+    roll_forward = bool(cfg.get("daily", {}).get("roll_forward", True))
+    recent_days = int(cfg.get("daily", {}).get("recent_days", 7))
 
     from kvant.kdata.alpha_vantage_retriever import AlphaVantageError, AlphaVantagePlanError
     from kvant.kdata.retriever import AlphaVantageRetriever, HybridRetriever, YahooRetriever
     from kvant.kdata.sync import DailyTickerSync
 
     retriever = HybridRetriever(
-        yahoo=YahooRetriever(interval=args.interval, period="7d", prepost=args.prepost),
-        alpha=AlphaVantageRetriever(interval=args.interval),
-        recent_days=7,
+        yahoo=YahooRetriever(interval=interval, period="7d", prepost=prepost),
+        alpha=AlphaVantageRetriever(interval=interval),
+        recent_days=recent_days,
     )
     syncer = DailyTickerSync(
-        store_dir=args.store,
+        store_dir=store,
         retriever=retriever,
-        state_file=args.state,
-        budget_limit=args.budget,
-        interval=args.interval,
+        state_file=state,
+        budget_limit=budget,
+        interval=interval,
     )
 
-    try:
-        report = syncer.run(args.ticker, roll_forward=not args.no_roll_forward)
-    except AlphaVantagePlanError as exc:
-        print(f"Alpha Vantage plan error: {exc}", file=sys.stderr)
-        raise SystemExit(2) from exc
-    except AlphaVantageError as exc:
-        print(f"Alpha Vantage error: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
-
-    store_path = Path(args.store).resolve()
-    print(f"Ticker  : {args.ticker}")
+    store_path = Path(store).resolve()
     print(f"Config  : {cfg_path}")
     print(f"Store   : {store_path}")
-    print(f"State   : {store_path / args.state}")
-    print(f"Mode    : {report.mode}")
-    print(f"Requests: {report.requests_used} (remaining: {syncer.remaining_requests()})")
-    if report.notes:
-        print("Notes   :")
-        for note in report.notes:
-            print(f"  - {note}")
+    print(f"State   : {store_path / state}")
+    print(f"Tickers : {', '.join(tickers)}\n")
+
+    for ticker in tickers:
+        try:
+            report = syncer.run(ticker, roll_forward=roll_forward)
+        except AlphaVantagePlanError as exc:
+            print(f"[{ticker}] Alpha Vantage plan error: {exc}", file=sys.stderr)
+            raise SystemExit(2) from exc
+        except AlphaVantageError as exc:
+            print(f"[{ticker}] Alpha Vantage error: {exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
+
+        print(f"Ticker  : {ticker}")
+        print(f"Mode    : {report.mode}")
+        print(f"Requests: {report.requests_used} (remaining: {syncer.remaining_requests()})")
+        if report.notes:
+            print("Notes   :")
+            for note in report.notes:
+                print(f"  - {note}")
+        print("")
 
 
 if __name__ == "__main__":

@@ -47,6 +47,19 @@ DEFAULT_PIPELINE_CONFIG: dict[str, Any] = {
         "model": "conv1d",
         "split": "test",
         "tickers": [],
+        "required_buy_probability": 0.6,
+        "required_sell_probability": 0.6,
+    },
+    "daily": {
+        "roll_forward": True,
+        "recent_days": 7,
+    },
+    "plot": {
+        "experiment_id": "last",
+        "model": "conv1d",
+        "split": "test",
+        "show": False,
+        "out_dir": None,
     },
 }
 
@@ -106,6 +119,11 @@ def _validate_config(cfg: dict[str, Any], path: Path) -> None:
 
     if str(cfg["predict"]["split"]) not in {"train", "val", "test"}:
         raise SystemExit(f"predict.split must be one of train|val|test in {path}")
+
+    for key in ("required_buy_probability", "required_sell_probability"):
+        value = float(cfg["predict"].get(key, 0.0))
+        if value < 0.0 or value > 1.0:
+            raise SystemExit(f"predict.{key} must be between 0 and 1 in {path}")
 
 
 def list_from_config(value: Any) -> list[str] | None:

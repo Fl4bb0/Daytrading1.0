@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import classification_report, confusion_matrix
 
-from kvant import BROKERAGE_FEE, CONFIDENCE_THRESHOLD
+from kvant import BROKERAGE_FEE
 from kvant.evaluation.loader import load_split
 from kvant.models.base import KvantModel
 from kvant.training.metrics import (
@@ -50,6 +50,8 @@ def evaluate_experiment(
     tickers: Optional[List[str]] = None,
     fee: float = BROKERAGE_FEE,
     n_pools: int = 10,
+    required_buy_probability: float = 0.0,
+    required_sell_probability: float = 0.0,
 ) -> Path:
     """
     Load artifacts, run inference, compute statistics, and save all results as CSV.
@@ -88,13 +90,21 @@ def evaluate_experiment(
     # 2. Load model and run inference
     # ------------------------------------------------------------------
     model    = model_cls.load(model_path)
-    y_pred   = model.predict(X)
+    y_pred_raw = model.predict(X)
 
     proba: Optional[np.ndarray] = None
     try:
         proba = model.predict_proba(X)
     except NotImplementedError:
         pass
+
+    y_pred = _apply_action_probability_thresholds(
+        y_pred=y_pred_raw,
+        proba=proba,
+        required_sell_probability=required_sell_probability,
+        required_buy_probability=required_buy_probability,
+    )
+    n_thresholded_to_hold = int(np.sum((y_pred_raw != y_pred) & np.isin(y_pred_raw, [0, 2])))
 
     # Ticker symbol per sample
     ticker_labels = np.array([ticker_map[int(tid)] for tid in tids])
@@ -112,8 +122,10 @@ def evaluate_experiment(
         "timestamp": ts_pd,
         "ticker":    ticker_labels,
         "y_true":    y,
+        "y_pred_raw": y_pred_raw,
         "y_pred":    y_pred,
         "y_true_name": [_LABEL_NAMES[int(v)] if int(v) in _LABEL_IDS else str(v) for v in y],
+        "y_pred_raw_name": [_LABEL_NAMES[int(v)] if int(v) in _LABEL_IDS else str(v) for v in y_pred_raw],
         "y_pred_name": [_LABEL_NAMES[int(v)] if int(v) in _LABEL_IDS else str(v) for v in y_pred],
     })
     if proba is not None and proba.shape[1] == 3:
@@ -240,6 +252,9 @@ def evaluate_experiment(
         "n_samples":       n_samples,
         "n_tickers":       n_tickers,
         "tickers":         ",".join(sorted(ticker_map.values())),
+        "required_buy_probability": float(required_buy_probability),
+        "required_sell_probability": float(required_sell_probability),
+        "n_thresholded_to_hold": n_thresholded_to_hold,
     }
     pd.DataFrame([run_meta]).to_csv(out_dir / "run_meta.csv", index=False)
 
@@ -284,10 +299,8 @@ def _save_equity_curve(
         "pools_busy", "skipped",
     ]
 
-    # Collect candidate trades (sorted by entry time)
-    # Only trades where the model's confidence exceeds the threshold are kept.
-    prob_cols = {"prob_SHORT": 0, "prob_BUY": 2}
-    has_proba = all(c in pred_df.columns for c in prob_cols)
+    # Collect candidate trades (sorted by entry time).
+    # Predictions are already thresholded upstream, so we only use y_pred.
     candidates = []
     for _, row in pred_df.sort_values("timestamp").iterrows():
         yp = int(row["y_pred"])
@@ -296,12 +309,6 @@ def _save_equity_curve(
             continue
         if yp not in (0, 2):
             continue
-        # Confidence filter: skip low-conviction predictions
-        if has_proba and CONFIDENCE_THRESHOLD > 0:
-            prob_col = "prob_SHORT" if yp == 0 else "prob_BUY"
-            conf = row.get(prob_col)
-            if isinstance(conf, (int, float)) and float(conf) < CONFIDENCE_THRESHOLD:
-                continue
         candidates.append(row)
 
     if not candidates:
@@ -355,6 +362,31 @@ def _save_equity_curve(
     eq_df["cumulative_portfolio_pnl_pct"] = eq_df["portfolio_pnl_pct"].cumsum()
     eq_df["cumulative_portfolio_pnl_net_pct"] = eq_df["portfolio_pnl_net_pct"].cumsum()
     eq_df.to_csv(out_path, index=False)
+
+
+def _apply_action_probability_thresholds(
+    y_pred: np.ndarray,
+    proba: Optional[np.ndarray],
+    required_sell_probability: float,
+    required_buy_probability: float,
+) -> np.ndarray:
+    """Demote low-confidence SHORT/BUY predictions to HOLD using side-specific thresholds."""
+    out = np.asarray(y_pred, dtype=np.int64).copy()
+    if proba is None or not isinstance(proba, np.ndarray) or proba.ndim != 2 or proba.shape[1] < 3:
+        return out
+
+    sell_thr = float(required_sell_probability)
+    buy_thr = float(required_buy_probability)
+
+    if sell_thr > 0:
+        short_mask = out == 0
+        out[short_mask & (proba[:, 0] < sell_thr)] = 1
+
+    if buy_thr > 0:
+        buy_mask = out == 2
+        out[buy_mask & (proba[:, 2] < buy_thr)] = 1
+
+    return out
 
 
 def _direction_from_label(s: pd.Series) -> pd.Series:

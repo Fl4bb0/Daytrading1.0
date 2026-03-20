@@ -1,5 +1,5 @@
-# Central defaults for update -> prepare -> train -> predict scripts.
-# CLI flags still override these values.
+# Central config for update -> prepare -> train -> predict -> plot scripts.
+# Scripts are config-driven and only accept --config.
 
 [paths]
 store = "data/1m"
@@ -38,4 +38,17 @@ experiment_id = "last"
 model = "resnls"
 split = "test"
 tickers = []
+required_buy_probability = 0.48
+required_sell_probability = 0.48
+
+[daily]
+roll_forward = true
+recent_days = 7
+
+[plot]
+experiment_id = "last"
+model = "resnls"
+split = "test"
+show = false
+# out_dir = "prepared/<exp-id>/eval/<model>_<split>/figures"
 

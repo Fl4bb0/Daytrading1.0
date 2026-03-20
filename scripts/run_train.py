@@ -1,34 +1,24 @@
 """
-scripts/run_train.py — Entry-point for model training.
-
-Loads a prepared experiment from disk, builds train/val/test numpy arrays
-from the index files, instantiates the requested model and trainer, and runs
-the full training loop.
+scripts/run_train.py — Train configured model on prepared data.
 
 Usage
 -----
-  python scripts/run_train.py --experiment-id <id> --model conv1d
-  python scripts/run_train.py --experiment-id last --model resnls --epochs 100
+  python scripts/run_train.py
+  python scripts/run_train.py --config pipeline.toml
 """
+
 import argparse
+import json
 from pathlib import Path
 
 from kvant.utils.pipeline_config import load_pipeline_config
 
-
-# Where prepare_experiment writes its output
-_PREPARED_ROOT = Path(__file__).resolve().parents[1] / "prepared"
-# Where trained checkpoints are saved
-_CHECKPOINTS_ROOT = Path(__file__).resolve().parents[1] / "checkpoints"
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_PREPARED_ROOT = _PROJECT_ROOT / "prepared"
+_CHECKPOINTS_ROOT = _PROJECT_ROOT / "checkpoints"
 
 
-def _load_split(exp_dir: Path, index: "np.ndarray", lookback_L: int) -> "tuple[np.ndarray, np.ndarray]":
-    """
-    Given an index array of shape (n, 2) with columns (tid, position),
-    slice a rolling window of length lookback_L immediately before each target
-    position p (i.e. bars [p-lookback_L, p))
-    and return (X, y) with X shaped (n, n_features, lookback_L).
-    """
+def _load_split(exp_dir: Path, index, lookback_L: int):
     from kvant.utils.split_loader import load_split_from_index
 
     loaded = load_split_from_index(
@@ -41,39 +31,19 @@ def _load_split(exp_dir: Path, index: "np.ndarray", lookback_L: int) -> "tuple[n
     return loaded.X, loaded.y
 
 
-def main():
+def main() -> None:
     import numpy as np
 
-    pre_parser = argparse.ArgumentParser(add_help=False)
-    pre_parser.add_argument("--config", default=None, help="Path to pipeline TOML config.")
-    pre_args, remaining = pre_parser.parse_known_args()
-    pipeline_cfg, cfg_path = load_pipeline_config(pre_args.config)
+    parser = argparse.ArgumentParser(description="Train a kvant model.")
+    parser.add_argument("--config", default="pipeline.toml", help="Pipeline TOML config path.")
+    args = parser.parse_args()
 
-    parser = argparse.ArgumentParser(description="Train a kvant model.", parents=[pre_parser])
-    parser.add_argument(
-        "--experiment-id", default=pipeline_cfg["train"].get("experiment_id", "last"),
-        help="Prepared experiment ID (sub-directory name under prepared/), or 'last'.",
-    )
-    parser.add_argument("--model", default=pipeline_cfg["train"].get("model", "conv1d"), help="Model key: conv1d, conv3d, resnls, tsb.")
-    parser.add_argument("--epochs", type=int, default=int(pipeline_cfg["train"].get("epochs", 50)))
-    parser.add_argument("--batch-size", type=int, default=int(pipeline_cfg["train"].get("batch_size", 256)))
-    parser.add_argument("--lr", type=float, default=float(pipeline_cfg["train"].get("learning_rate", 1e-3)))
-    parser.add_argument("--patience", type=int, default=int(pipeline_cfg["train"].get("patience", 10)), help="Early-stopping patience.")
-    parser.add_argument("--device", default=pipeline_cfg["train"].get("device", "cpu"), help="torch device, e.g. cpu or cuda.")
-    parser.add_argument(
-        "--prepared-root", default=str(Path(pipeline_cfg["paths"].get("prepared_root", str(_PREPARED_ROOT)))),
-        help=f"Root directory for prepared experiments. Default: {_PREPARED_ROOT}",
-    )
-    parser.add_argument(
-        "--checkpoint-dir", default=None,
-        help="Where to save the best checkpoint. Default: checkpoints/<experiment-id>/<model>/",
-    )
-    args = parser.parse_args(remaining)
+    pipeline_cfg, cfg_path = load_pipeline_config(args.config)
+    train_cfg = pipeline_cfg["train"]
+    paths_cfg = pipeline_cfg["paths"]
 
-    prepared_root = Path(args.prepared_root)
-
-    # Resolve experiment directory
-    exp_id = args.experiment_id
+    prepared_root = Path(paths_cfg.get("prepared_root", str(_PREPARED_ROOT)))
+    exp_id = str(train_cfg.get("experiment_id", "last"))
     if exp_id == "last":
         last_file = prepared_root / "last_experiment.txt"
         if not last_file.exists():
@@ -84,89 +54,62 @@ def main():
     if not exp_dir.exists():
         raise SystemExit(f"Experiment directory not found: {exp_dir}")
 
-    # Resolve checkpoint directory
-    checkpoint_dir = (
-        Path(args.checkpoint_dir)
-        if args.checkpoint_dir
-        else Path(pipeline_cfg["paths"].get("checkpoints_root", str(_CHECKPOINTS_ROOT))) / exp_id / args.model
-    )
+    model_name = str(train_cfg.get("model", "conv1d"))
+    checkpoint_dir = Path(paths_cfg.get("checkpoints_root", str(_CHECKPOINTS_ROOT))) / exp_id / model_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Experiment : {exp_dir}")
     print(f"Config     : {cfg_path}")
-    print(f"Model      : {args.model}")
+    print(f"Model      : {model_name}")
     print(f"Checkpoint : {checkpoint_dir}")
-    print(f"Device     : {args.device}\n")
+    print(f"Device     : {train_cfg.get('device', 'cpu')}\n")
 
-    # ------------------------------------------------------------------
-    # Load index arrays and build X / y splits
-    # ------------------------------------------------------------------
-    import json
-    cfg_data   = json.loads((exp_dir / "config.json").read_text())
+    cfg_data = json.loads((exp_dir / "config.json").read_text())
     lookback_L = int(cfg_data["lookback_L"])
 
     index_train = np.load(exp_dir / "index_train.npy")
-    index_val   = np.load(exp_dir / "index_val.npy")
-    index_test  = np.load(exp_dir / "index_test.npy")
+    index_val = np.load(exp_dir / "index_val.npy")
+    index_test = np.load(exp_dir / "index_test.npy")
 
-    print("Loading splits from disk…")
     X_train, y_train = _load_split(exp_dir, index_train, lookback_L)
-    X_val,   y_val   = _load_split(exp_dir, index_val,   lookback_L)
-    X_test,  y_test  = _load_split(exp_dir, index_test,  lookback_L)
+    X_val, y_val = _load_split(exp_dir, index_val, lookback_L)
+    X_test, y_test = _load_split(exp_dir, index_test, lookback_L)
 
-    # Features are stored as (n, n_features, lookback_L) — keep as-is for Conv models.
-    # n_features is dim 1.
     n_features = X_train.shape[1]
-    n_classes  = int(y_train.max()) + 1
+    n_classes = int(y_train.max()) + 1
 
-    print(f"  train : {len(X_train):,} samples  |  shape {X_train.shape}")
-    print(f"  val   : {len(X_val):,} samples")
-    print(f"  test  : {len(X_test):,} samples")
-    print(f"  n_features={n_features}  n_classes={n_classes}\n")
-
-    # ------------------------------------------------------------------
-    # Instantiate model
-    # ------------------------------------------------------------------
     from kvant.models import MODEL_REGISTRY
-    if args.model not in MODEL_REGISTRY:
-        raise SystemExit(f"Unknown model '{args.model}'. Available: {list(MODEL_REGISTRY)}")
 
-    model = MODEL_REGISTRY[args.model](
+    if model_name not in MODEL_REGISTRY:
+        raise SystemExit(f"Unknown model '{model_name}'. Available: {list(MODEL_REGISTRY)}")
+
+    model = MODEL_REGISTRY[model_name](
         n_features=n_features,
         n_classes=n_classes,
-        device=args.device,
+        device=str(train_cfg.get("device", "cpu")),
     )
 
-    # ------------------------------------------------------------------
-    # Train
-    # ------------------------------------------------------------------
     from kvant.training.pytorch_trainer import PytorchTrainer
     from kvant.training.trainer import TrainConfig
 
     cfg = TrainConfig(
-        epochs=args.epochs,
-        batch_size=args.batch_size,
-        learning_rate=args.lr,
-        early_stopping_patience=args.patience,
+        epochs=int(train_cfg.get("epochs", 50)),
+        batch_size=int(train_cfg.get("batch_size", 256)),
+        learning_rate=float(train_cfg.get("learning_rate", 1e-3)),
+        early_stopping_patience=int(train_cfg.get("patience", 10)),
         checkpoint_dir=checkpoint_dir,
     )
     trainer = PytorchTrainer(model, cfg)
 
-    print("Training…")
     history = trainer.fit(X_train, y_train, X_val, y_val)
-    print(f"\nBest val accuracy : {history['best_val_accuracy']:.4f}  (epoch {history['best_epoch']})")
+    print(f"Best val accuracy : {history['best_val_accuracy']:.4f} (epoch {history['best_epoch']})")
 
-    # ------------------------------------------------------------------
-    # Evaluate on test split
-    # ------------------------------------------------------------------
-    print("\nEvaluating on test split…")
     test_metrics = trainer.evaluate(X_test, y_test)
     for k, v in test_metrics.items():
         print(f"  {k}: {v:.4f}")
 
-    # Save final checkpoint explicitly (best weights already restored by trainer)
     model.save(checkpoint_dir)
-    print(f"\nCheckpoint saved → {checkpoint_dir}")
+    print(f"Checkpoint saved -> {checkpoint_dir}")
 
 
 if __name__ == "__main__":

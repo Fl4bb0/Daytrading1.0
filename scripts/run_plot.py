@@ -16,13 +16,15 @@ Figures saved to <eval-dir>/figures/
 
 Usage
 -----
-  python scripts/run_plot.py --eval-dir prepared/<exp>/eval/<model>_<split>
-  python scripts/run_plot.py --eval-dir prepared/<exp>/eval/<model>_test --show
+  python scripts/run_plot.py
+  python scripts/run_plot.py --config pipeline.toml
 """
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
+
+from kvant.utils.pipeline_config import load_pipeline_config
 
 
 def _load_csvs(eval_dir: Path) -> dict:
@@ -672,63 +674,56 @@ def main() -> None:
     import matplotlib.pyplot as plt
 
     parser = argparse.ArgumentParser(description="Generate evaluation figures from run_predict.py CSVs.")
-    parser.add_argument(
-        "--eval-dir", default=None,
-        help="Path to an eval directory produced by run_predict.py. Defaults to last experiment's eval dir.",
-    )
-    parser.add_argument(
-        "--model", default="conv1d",
-        help="Model name used to find eval dir (default: conv1d).",
-    )
-    parser.add_argument(
-        "--split", default="test", choices=["train", "val", "test"],
-        help="Split used to find eval dir (default: test).",
-    )
-    parser.add_argument(
-        "--out-dir", default=None,
-        help="Where to save figures. Defaults to <eval-dir>/figures/",
-    )
-    parser.add_argument(
-        "--show", action="store_true",
-        help="Show each figure interactively after saving.",
-    )
+    parser.add_argument("--config", default="pipeline.toml", help="Pipeline TOML config path.")
     args = parser.parse_args()
 
-    if args.show:
+    cfg, cfg_path = load_pipeline_config(args.config)
+    plot_cfg = cfg.get("plot", {})
+    predict_cfg = cfg.get("predict", {})
+    paths_cfg = cfg.get("paths", {})
+
+    show = bool(plot_cfg.get("show", False))
+    model_name = str(plot_cfg.get("model", predict_cfg.get("model", "conv1d")))
+    split = str(plot_cfg.get("split", predict_cfg.get("split", "test")))
+    exp_id = str(plot_cfg.get("experiment_id", "last"))
+
+    prepared_root = Path(paths_cfg.get("prepared_root", str(_PREPARED_ROOT)))
+
+    if show:
         matplotlib.use("TkAgg")
 
-    if args.eval_dir is not None:
-        eval_dir = Path(args.eval_dir)
-    else:
-        last_file = _PREPARED_ROOT / "last_experiment.txt"
+    if exp_id == "last":
+        last_file = prepared_root / "last_experiment.txt"
         if not last_file.exists():
-            raise SystemExit(f"No last_experiment.txt found in {_PREPARED_ROOT}. Pass --eval-dir explicitly.")
+            raise SystemExit(f"No last_experiment.txt found in {prepared_root}.")
         exp_id = last_file.read_text().strip()
-        eval_dir = _PREPARED_ROOT / exp_id / "eval" / f"{args.model}_{args.split}"
-        print(f"Auto-detected eval dir: {eval_dir}")
+
+    eval_dir = prepared_root / exp_id / "eval" / f"{model_name}_{split}"
+    print(f"Auto-detected eval dir: {eval_dir}")
 
     if not eval_dir.exists():
         raise SystemExit(f"Eval directory not found: {eval_dir}. Run run_predict.py first.")
 
-    out_dir = Path(args.out_dir) if args.out_dir else eval_dir / "figures"
+    out_dir = Path(plot_cfg["out_dir"]) if plot_cfg.get("out_dir") else eval_dir / "figures"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Eval dir : {eval_dir}")
+    print(f"Config   : {cfg_path}")
     print(f"Figures  : {out_dir}\n")
 
     dfs = _load_csvs(eval_dir)
 
-    plot_confusion_matrix(dfs, out_dir, args.show)
-    plot_classification_metrics(dfs, out_dir, args.show)
-    plot_label_distribution(dfs, out_dir, args.show)
-    plot_prediction_distribution(dfs, out_dir, args.show)
-    plot_per_ticker_accuracy(dfs, out_dir, args.show)
-    plot_equity_curve(dfs, out_dir, args.show)
-    plot_trade_stats(dfs, out_dir, args.show)
-    plot_prob_distributions(dfs, out_dir, args.show)
-    plot_directional_drift(dfs, out_dir, args.show)
-    plot_directional_calibration(dfs, out_dir, args.show)
-    plot_backtest_comparison(dfs, out_dir, args.show)
+    plot_confusion_matrix(dfs, out_dir, show)
+    plot_classification_metrics(dfs, out_dir, show)
+    plot_label_distribution(dfs, out_dir, show)
+    plot_prediction_distribution(dfs, out_dir, show)
+    plot_per_ticker_accuracy(dfs, out_dir, show)
+    plot_equity_curve(dfs, out_dir, show)
+    plot_trade_stats(dfs, out_dir, show)
+    plot_prob_distributions(dfs, out_dir, show)
+    plot_directional_drift(dfs, out_dir, show)
+    plot_directional_calibration(dfs, out_dir, show)
+    plot_backtest_comparison(dfs, out_dir, show)
 
     saved = list(out_dir.glob("*.png"))
     print(f"\nDone — {len(saved)} figures saved to {out_dir}")

@@ -133,10 +133,13 @@ def _compare_equity_curves(
         df = dfs["equity_curve"].copy()
         if df.empty or "timestamp" not in df.columns:
             continue
-        df = (
-            df[["timestamp", "cumulative_pnl_pct"]]
-            .rename(columns={"cumulative_pnl_pct": f"cumulative_pnl_pct_{run_label}"})
-        )
+        cols_to_keep = ["timestamp", "cumulative_pnl_pct"]
+        rename_map = {"cumulative_pnl_pct": f"cumulative_pnl_pct_{run_label}"}
+        for extra in ("cumulative_portfolio_pnl_pct", "cumulative_portfolio_pnl_net_pct"):
+            if extra in df.columns:
+                cols_to_keep.append(extra)
+                rename_map[extra] = f"{extra}_{run_label}"
+        df = df[cols_to_keep].rename(columns=rename_map)
         if merged is None:
             merged = df
         else:

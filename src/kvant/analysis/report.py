@@ -80,7 +80,7 @@ def print_comparison_report(
     _section("EQUITY CURVE  (summary)")
     eq_df = comparison.get("equity_curves", pd.DataFrame())
     if not eq_df.empty:
-        pnl_cols = [c for c in eq_df.columns if c.startswith("cumulative_pnl_pct")]
+        pnl_cols = [c for c in eq_df.columns if c.startswith("cumulative_pnl")]
         summary_rows = []
         for col in pnl_cols:
             run_name = col.replace("cumulative_pnl_pct_", "")

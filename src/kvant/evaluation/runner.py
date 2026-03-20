@@ -26,6 +26,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import classification_report, confusion_matrix
 
+from kvant import BROKERAGE_FEE, CONFIDENCE_THRESHOLD
 from kvant.evaluation.loader import load_split
 from kvant.models.base import KvantModel
 from kvant.training.metrics import (
@@ -47,6 +48,8 @@ def evaluate_experiment(
     out_dir: Path,
     split: str = "test",
     tickers: Optional[List[str]] = None,
+    fee: float = BROKERAGE_FEE,
+    n_pools: int = 10,
 ) -> Path:
     """
     Load artifacts, run inference, compute statistics, and save all results as CSV.
@@ -59,6 +62,11 @@ def evaluate_experiment(
     out_dir    : Directory where all CSV files will be written.
     split      : Which split to evaluate — ``"train"``, ``"val"``, or ``"test"``.
     tickers    : Optional allowlist of ticker symbols to evaluate.
+    fee        : One-way brokerage fee as a fraction (e.g. 0.0008 = 0.08 %).
+                 Used to add net-of-fees columns to the equity curve.
+    n_pools    : Number of equal capital pools for position sizing (default 10).
+                 Each trade uses 1/n_pools of total capital. Trades arriving
+                 when all pools are occupied are skipped.
 
     Returns
     -------
@@ -113,12 +121,17 @@ def evaluate_experiment(
         pred_df["prob_HOLD"]  = proba[:, 1]
         pred_df["prob_BUY"]   = proba[:, 2]
 
-    # Add pnl_fraction from metadata for downstream convenience
+    # Add pnl_fraction and bar_close_time from metadata for downstream convenience
     pnl_col = [
         m.get("pnl_fraction") if isinstance(m, dict) else None
         for m in metas
     ]
     pred_df["pnl_fraction"] = pnl_col
+    close_time_col = [
+        m.get("bar_close_time") if isinstance(m, dict) else None
+        for m in metas
+    ]
+    pred_df["bar_close_time"] = pd.to_datetime(close_time_col, errors="coerce")
     pred_df.to_csv(out_dir / "predictions.csv", index=False)
 
     # ------------------------------------------------------------------
@@ -178,7 +191,7 @@ def evaluate_experiment(
     # ------------------------------------------------------------------
     # 7. equity_curve.csv
     # ------------------------------------------------------------------
-    _save_equity_curve(pred_df, out_dir / "equity_curve.csv")
+    _save_equity_curve(pred_df, out_dir / "equity_curve.csv", fee=fee, n_pools=n_pools)
 
     # ------------------------------------------------------------------
     # 8. label_distribution.csv
@@ -241,39 +254,106 @@ def evaluate_experiment(
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _save_equity_curve(pred_df: pd.DataFrame, out_path: Path) -> None:
+def _save_equity_curve(
+    pred_df: pd.DataFrame,
+    out_path: Path,
+    fee: float = BROKERAGE_FEE,
+    n_pools: int = 10,
+) -> None:
     """
     Build and save a cumulative portfolio PnL equity curve.
 
     Only BUY (y_pred=2) and SHORT (y_pred=0) predictions that have a
     ``pnl_fraction`` value in the metadata contribute a trade.
-    The curve is sorted by timestamp and PnL is accumulated in sequence.
+
+    Capital allocation uses *n_pools* equal-sized pools.  Each trade
+    occupies one pool from entry (timestamp) until exit (bar_close_time).
+    A new trade is skipped if all pools are occupied.  Each trade's
+    portfolio impact is ``trade_pnl_pct / n_pools``.
+
+    Both gross (theoretical, no pool limit) and portfolio-level columns
+    (with pool allocation and optional fees) are included.
     """
-    rows = []
+    round_trip_fee_pct = 2.0 * float(fee) * 100.0   # percentage points
+
+    _empty_cols = [
+        "timestamp", "ticker", "action",
+        "trade_pnl_pct", "cumulative_pnl_pct",
+        "portfolio_pnl_pct", "cumulative_portfolio_pnl_pct",
+        "portfolio_pnl_net_pct", "cumulative_portfolio_pnl_net_pct",
+        "pools_busy", "skipped",
+    ]
+
+    # Collect candidate trades (sorted by entry time)
+    # Only trades where the model's confidence exceeds the threshold are kept.
+    prob_cols = {"prob_SHORT": 0, "prob_BUY": 2}
+    has_proba = all(c in pred_df.columns for c in prob_cols)
+    candidates = []
     for _, row in pred_df.sort_values("timestamp").iterrows():
-        yp       = int(row["y_true"])       # use y_true for ideal curve?  No: use y_pred.
-        yp       = int(row["y_pred"])
+        yp = int(row["y_pred"])
         pnl_frac = row.get("pnl_fraction")
         if not isinstance(pnl_frac, (int, float)) or np.isnan(float(pnl_frac)):
             continue
         if yp not in (0, 2):
             continue
-        signed_pnl = (-1.0 if yp == 0 else 1.0) * float(pnl_frac)
-        rows.append({
-            "timestamp":      row["timestamp"],
-            "ticker":         row["ticker"],
-            "action":         _LABEL_NAMES[yp],
-            "trade_pnl_pct":  signed_pnl * 100.0,
-        })
+        # Confidence filter: skip low-conviction predictions
+        if has_proba and CONFIDENCE_THRESHOLD > 0:
+            prob_col = "prob_SHORT" if yp == 0 else "prob_BUY"
+            conf = row.get(prob_col)
+            if isinstance(conf, (int, float)) and float(conf) < CONFIDENCE_THRESHOLD:
+                continue
+        candidates.append(row)
 
-    if not rows:
-        pd.DataFrame(columns=[
-            "timestamp", "ticker", "action", "trade_pnl_pct", "cumulative_pnl_pct"
-        ]).to_csv(out_path, index=False)
+    if not candidates:
+        pd.DataFrame(columns=_empty_cols).to_csv(out_path, index=False)
         return
 
+    # Simulate pool allocation
+    # Each pool is "busy" until the trade's bar_close_time.
+    pool_free_at: list[pd.Timestamp] = [pd.Timestamp.min] * n_pools
+    rows = []
+
+    for row in candidates:
+        yp = int(row["y_pred"])
+        entry_ts = row["timestamp"]
+        exit_ts = row.get("bar_close_time")
+        signed_pnl = (-1.0 if yp == 0 else 1.0) * float(row["pnl_fraction"])
+        gross_pct = signed_pnl * 100.0
+
+        # Count how many pools are busy at this entry time
+        busy = sum(1 for t in pool_free_at if t > entry_ts)
+
+        # Try to claim a pool (pick the one that freed up earliest)
+        pool_idx = None
+        for i, free_at in enumerate(pool_free_at):
+            if free_at <= entry_ts:
+                pool_idx = i
+                break
+
+        skipped = pool_idx is None
+        if not skipped and exit_ts is not None and not pd.isna(exit_ts):
+            pool_free_at[pool_idx] = exit_ts
+
+        portfolio_pnl = 0.0 if skipped else gross_pct / n_pools
+        portfolio_pnl_net = 0.0 if skipped else (gross_pct - round_trip_fee_pct) / n_pools
+
+        rows.append({
+            "timestamp":          entry_ts,
+            "ticker":             row["ticker"],
+            "action":             _LABEL_NAMES[yp],
+            "trade_pnl_pct":      gross_pct,
+            "portfolio_pnl_pct":  portfolio_pnl,
+            "portfolio_pnl_net_pct": portfolio_pnl_net,
+            "pools_busy":         busy,
+            "skipped":            skipped,
+        })
+
     eq_df = pd.DataFrame(rows)
+    # Gross cumulative (theoretical, no pool limit)
     eq_df["cumulative_pnl_pct"] = eq_df["trade_pnl_pct"].cumsum()
+    # Portfolio cumulative (pool-allocated)
+    eq_df["cumulative_portfolio_pnl_pct"] = eq_df["portfolio_pnl_pct"].cumsum()
+    eq_df["cumulative_portfolio_pnl_net_pct"] = eq_df["portfolio_pnl_net_pct"].cumsum()
     eq_df.to_csv(out_path, index=False)
 
 

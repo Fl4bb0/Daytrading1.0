@@ -269,19 +269,98 @@ def plot_equity_curve(dfs: dict, out_dir: Path, show: bool) -> None:
     if len(df) == 0:
         return
 
-    fig, ax = plt.subplots(figsize=(12, 5))
-    ax.plot(range(len(df)), df["cumulative_pnl_pct"], linewidth=1.5, color="#4C72B0")
-    ax.axhline(0, color="black", linewidth=0.8, linestyle="--")
-    ax.fill_between(range(len(df)), df["cumulative_pnl_pct"], 0,
-                    where=df["cumulative_pnl_pct"] >= 0, alpha=0.2, color="green")
-    ax.fill_between(range(len(df)), df["cumulative_pnl_pct"], 0,
-                    where=df["cumulative_pnl_pct"] < 0, alpha=0.2, color="red")
+    has_portfolio = "cumulative_portfolio_pnl_pct" in df.columns
+    has_net = "cumulative_portfolio_pnl_net_pct" in df.columns
 
-    final = float(df["cumulative_pnl_pct"].iloc[-1])
+    fig, ax = plt.subplots(figsize=(12, 5))
+    x = range(len(df))
+
+    import pandas as pd
+
+    title_parts = []
+
+    # Portfolio curve (pool-allocated, before fees)
+    if has_portfolio:
+        port = df["cumulative_portfolio_pnl_pct"]
+        ax.plot(x, port, linewidth=1.5, color="#4C72B0", label="Portfolio (gross)")
+        ax.fill_between(x, port, 0, where=port >= 0, alpha=0.1, color="green")
+        ax.fill_between(x, port, 0, where=port < 0, alpha=0.1, color="red")
+        final_port = float(port.iloc[-1])
+        title_parts.append(f"portfolio: {final_port:+.2f}%")
+
+    # Portfolio net-of-fees curve
+    if has_net:
+        net = df["cumulative_portfolio_pnl_net_pct"]
+        ax.plot(x, net, linewidth=1.5, color="#DD8452", label="Portfolio (net of fees)")
+        final_net = float(net.iloc[-1])
+        title_parts.append(f"net: {final_net:+.2f}%")
+
+    # Buy-and-hold benchmark (equal-weight across tickers in the test set)
+    bnh_return = _buy_and_hold_return(df)
+    if bnh_return is not None:
+        # Interpolate the B&H return linearly across trade indices so the
+        # x-axis (Trade #) stays consistent with the other curves.
+        bnh_line = [bnh_return * i / max(len(df) - 1, 1) for i in range(len(df))]
+        ax.plot(x, bnh_line, linewidth=1.2, color="#7f7f7f", linestyle="--",
+                label=f"Buy & Hold ({bnh_return:+.2f}%)")
+        title_parts.append(f"B&H: {bnh_return:+.2f}%")
+
+    # Show skipped-trade count if available
+    if "skipped" in df.columns:
+        n_skipped = int(df["skipped"].sum())
+        n_total = len(df)
+        title_parts.append(f"{n_skipped}/{n_total} skipped")
+
+    ax.axhline(0, color="black", linewidth=0.8, linestyle="--")
     ax.set_xlabel("Trade #"); ax.set_ylabel("Cumulative PnL (%)")
-    ax.set_title(f"Equity Curve  (final: {final:+.2f}%)", fontweight="bold")
+    ax.set_title(f"Equity Curve  ({',  '.join(title_parts)})", fontweight="bold")
+    ax.legend()
     ax.grid(alpha=0.3)
     _save(fig, out_dir / "06_equity_curve.png", show)
+
+
+def _buy_and_hold_return(eq_df) -> float | None:
+    """
+    Compute equal-weight buy-and-hold return over the test period.
+
+    Uses the raw 1m CSVs in data/1m/ for each ticker present in the equity
+    curve.  Returns the average per-ticker cumulative return (%) from the
+    first to the last trade timestamp, or None if price data is unavailable.
+    """
+    import pandas as pd
+
+    store_dir = _PROJECT_ROOT / "data" / "1m"
+    if not store_dir.exists():
+        return None
+
+    if "timestamp" not in eq_df.columns or "ticker" not in eq_df.columns:
+        return None
+
+    timestamps = pd.to_datetime(eq_df["timestamp"], utc=True)
+    t_min, t_max = timestamps.min(), timestamps.max()
+    if pd.isna(t_min) or pd.isna(t_max) or t_min == t_max:
+        return None
+
+    tickers = eq_df["ticker"].unique()
+    returns = []
+    for ticker in tickers:
+        csv_path = store_dir / f"{ticker}.csv"
+        if not csv_path.exists():
+            continue
+        raw = pd.read_csv(csv_path, parse_dates=["timestamp"], index_col="timestamp")
+        if raw.index.tz is None:
+            raw.index = raw.index.tz_localize("UTC")
+        if "close" not in raw.columns:
+            continue
+        sliced = raw.loc[t_min:t_max, "close"].dropna()
+        if len(sliced) < 2:
+            continue
+        ret = (float(sliced.iloc[-1]) / float(sliced.iloc[0]) - 1.0) * 100.0
+        returns.append(ret)
+
+    if not returns:
+        return None
+    return sum(returns) / len(returns)
 
 
 # ---------------------------------------------------------------------------

@@ -16,28 +16,41 @@ Usage
 import argparse
 from pathlib import Path
 
+from kvant.utils.pipeline_config import list_from_config, load_pipeline_config
+
 
 def main() -> None:
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument("--config", default=None, help="Path to pipeline TOML config.")
+    pre_args, remaining = pre_parser.parse_known_args()
+    cfg, cfg_path = load_pipeline_config(pre_args.config)
+
+    default_symbols = list_from_config(cfg["data"].get("symbols"))
+    if default_symbols == []:
+        default_symbols = None
+
     parser = argparse.ArgumentParser(
-        description="Weekly 1-minute data update — fetches Mon–Fri and appends to local CSVs."
+        description="Weekly 1-minute data update — fetches Mon–Fri and appends to local CSVs.",
+        parents=[pre_parser],
     )
     parser.add_argument(
-        "--symbols", nargs="+", default=None, metavar="TICKER",
-        help="Yahoo Finance ticker symbols. Default: all tickers already in --store.",
+        "--symbols", nargs="+", default=default_symbols, metavar="TICKER",
+        help="Yahoo Finance ticker symbols. Default: config symbols or all tickers already in --store.",
     )
     parser.add_argument(
-        "--store", default="data/1m", metavar="DIR",
-        help="Directory where per-ticker CSVs and status.toml are kept. Default: data/1m",
+        "--store", default=cfg["paths"].get("store", "data/1m"), metavar="DIR",
+        help="Directory where per-ticker CSVs and status.toml are kept.",
     )
     parser.add_argument(
-        "--interval", default="1m",
-        help="Bar interval to fetch. Default: 1m",
+        "--interval", default=cfg["data"].get("interval", "1m"),
+        help="Bar interval to fetch.",
     )
     parser.add_argument(
-        "--prepost", action="store_true",
+        "--prepost", action=argparse.BooleanOptionalAction,
+        default=bool(cfg["data"].get("prepost", False)),
         help="Include pre- and post-market bars.",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(remaining)
 
     from kvant.kdata.retriever import YahooRetriever
     from kvant.kdata.store import OHLCVStore
@@ -56,6 +69,7 @@ def main() -> None:
     store = OHLCVStore(args.store)
 
     print(f"Symbols : {', '.join(args.symbols)}")
+    print(f"Config  : {cfg_path}")
     print(f"Store   : {store_path}")
     print(f"Interval: {args.interval}  |  prepost: {args.prepost}\n")
 

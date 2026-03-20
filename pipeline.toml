@@ -1,0 +1,41 @@
+# Central defaults for update -> prepare -> train -> predict scripts.
+# CLI flags still override these values.
+
+[paths]
+store = "data/1m"
+prepared_root = "prepared"
+checkpoints_root = "checkpoints"
+sync_state = "sync_state.json"
+
+[data]
+interval = "1m"
+symbols = []
+prepost = false
+daily_budget = 25
+
+[prepare]
+val_frac = 0.15
+test_frac = 0.15
+lookback = 20
+width_minutes = 20
+height_pct = 0.5
+target_bars_per_day = 195
+volatility_scaled_barrier = true
+vol_scale_min = 0.5
+vol_scale_max = 2.0
+
+[train]
+experiment_id = "last"
+model = "resnls"
+epochs = 50
+batch_size = 256
+learning_rate = 0.001
+patience = 10
+device = "cpu"
+
+[predict]
+experiment_id = "last"
+model = "resnls"
+split = "test"
+tickers = []
+

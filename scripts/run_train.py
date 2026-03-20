@@ -13,6 +13,8 @@ Usage
 import argparse
 from pathlib import Path
 
+from kvant.utils.pipeline_config import load_pipeline_config
+
 
 # Where prepare_experiment writes its output
 _PREPARED_ROOT = Path(__file__).resolve().parents[1] / "prepared"
@@ -42,26 +44,31 @@ def _load_split(exp_dir: Path, index: "np.ndarray", lookback_L: int) -> "tuple[n
 def main():
     import numpy as np
 
-    parser = argparse.ArgumentParser(description="Train a kvant model.")
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument("--config", default=None, help="Path to pipeline TOML config.")
+    pre_args, remaining = pre_parser.parse_known_args()
+    pipeline_cfg, cfg_path = load_pipeline_config(pre_args.config)
+
+    parser = argparse.ArgumentParser(description="Train a kvant model.", parents=[pre_parser])
     parser.add_argument(
-        "--experiment-id", default="last",
+        "--experiment-id", default=pipeline_cfg["train"].get("experiment_id", "last"),
         help="Prepared experiment ID (sub-directory name under prepared/), or 'last'.",
     )
-    parser.add_argument("--model",    default="conv1d", help="Model key: conv1d, conv3d, resnls, tsb.")
-    parser.add_argument("--epochs",   type=int,   default=50)
-    parser.add_argument("--batch-size", type=int, default=256)
-    parser.add_argument("--lr",       type=float, default=1e-3)
-    parser.add_argument("--patience", type=int,   default=10, help="Early-stopping patience.")
-    parser.add_argument("--device",   default="cpu", help="torch device, e.g. cpu or cuda.")
+    parser.add_argument("--model", default=pipeline_cfg["train"].get("model", "conv1d"), help="Model key: conv1d, conv3d, resnls, tsb.")
+    parser.add_argument("--epochs", type=int, default=int(pipeline_cfg["train"].get("epochs", 50)))
+    parser.add_argument("--batch-size", type=int, default=int(pipeline_cfg["train"].get("batch_size", 256)))
+    parser.add_argument("--lr", type=float, default=float(pipeline_cfg["train"].get("learning_rate", 1e-3)))
+    parser.add_argument("--patience", type=int, default=int(pipeline_cfg["train"].get("patience", 10)), help="Early-stopping patience.")
+    parser.add_argument("--device", default=pipeline_cfg["train"].get("device", "cpu"), help="torch device, e.g. cpu or cuda.")
     parser.add_argument(
-        "--prepared-root", default=str(_PREPARED_ROOT),
+        "--prepared-root", default=str(Path(pipeline_cfg["paths"].get("prepared_root", str(_PREPARED_ROOT)))),
         help=f"Root directory for prepared experiments. Default: {_PREPARED_ROOT}",
     )
     parser.add_argument(
         "--checkpoint-dir", default=None,
         help="Where to save the best checkpoint. Default: checkpoints/<experiment-id>/<model>/",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(remaining)
 
     prepared_root = Path(args.prepared_root)
 
@@ -81,11 +88,12 @@ def main():
     checkpoint_dir = (
         Path(args.checkpoint_dir)
         if args.checkpoint_dir
-        else _CHECKPOINTS_ROOT / exp_id / args.model
+        else Path(pipeline_cfg["paths"].get("checkpoints_root", str(_CHECKPOINTS_ROOT))) / exp_id / args.model
     )
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Experiment : {exp_dir}")
+    print(f"Config     : {cfg_path}")
     print(f"Model      : {args.model}")
     print(f"Checkpoint : {checkpoint_dir}")
     print(f"Device     : {args.device}\n")

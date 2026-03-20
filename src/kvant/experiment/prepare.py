@@ -356,6 +356,10 @@ def build_default_components(
     volatility_scaled_barrier: bool = True,
     vol_scale_min: float = 0.5,
     vol_scale_max: float = 2.0,
+    lookback_L: int = 20,
+    width_minutes: int | None = None,
+    height_pct: float = 0.5,
+    target_bars_per_day: int | None = None,
 ):
     """
     Return (sampler, fe, labeler, cfg) wired with sensible defaults,
@@ -369,10 +373,14 @@ def build_default_components(
         "1m": 1, "2m": 2, "5m": 5, "15m": 15, "30m": 30,
         "60m": 60, "1h": 60, "90m": 90, "1d": 390, "1wk": 1950,
     }
-    bar_minutes    = _interval_minutes.get(interval, 1)
-    width_minutes  = bar_minutes * 20
-    target_bars_pd = max(1, round(390 / bar_minutes * 0.5))
-    L, height_pct  = 20, 0.5
+    bar_minutes = _interval_minutes.get(interval, 1)
+    effective_width_minutes = int(width_minutes) if width_minutes is not None else bar_minutes * 20
+    target_bars_pd = (
+        int(target_bars_per_day)
+        if target_bars_per_day is not None
+        else max(1, round(390 / bar_minutes * 0.5))
+    )
+    L = int(lookback_L)
 
     sampler = TunedCUSUMBarSampler(
         target_bars_per_day=target_bars_pd,
@@ -384,8 +392,8 @@ def build_default_components(
     vol_mode = "ticker_std" if volatility_scaled_barrier else "none"
 
     labeler = TripleBarrierLabeler(
-        name=f"tb_w{width_minutes}_h{height_pct}pct_{vol_mode}",
-        width_minutes=width_minutes,
+        name=f"tb_w{effective_width_minutes}_h{height_pct}pct_{vol_mode}",
+        width_minutes=effective_width_minutes,
         height=height_pct / 100,
         drop_time_exit=False,
         volatility_scale_mode=vol_mode,
@@ -394,7 +402,7 @@ def build_default_components(
     )
     exp_suffix = f"_VS{vol_scale_min:g}-{vol_scale_max:g}" if volatility_scaled_barrier else ""
     cfg = ExperimentConfig(
-        experiment_name=f"tb_L{L}_w{width_minutes}_h{height_pct}_TBPD{target_bars_pd}{exp_suffix}",
+        experiment_name=f"tb_L{L}_w{effective_width_minutes}_h{height_pct}_TBPD{target_bars_pd}{exp_suffix}",
         sampler=asdict(sampler),
         feature_engineer=fe.get_meta(),
         labeler=asdict(labeler),

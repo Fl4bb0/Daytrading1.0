@@ -24,14 +24,34 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from kvant.utils.pipeline_config import list_from_config, load_pipeline_config
+
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _PREPARED_ROOT = _PROJECT_ROOT / "prepared"
 _CHECKPOINTS_ROOT = _PROJECT_ROOT / "checkpoints"
 
 
 def main() -> None:
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument("--config", default=None, help="Path to pipeline TOML config.")
+    pre_args, remaining = pre_parser.parse_known_args()
+    cfg, cfg_path = load_pipeline_config(pre_args.config)
+
+    default_tickers = list_from_config(cfg["predict"].get("tickers"))
+    if default_tickers == []:
+        default_tickers = None
+
+    prepared_root = Path(cfg["paths"].get("prepared_root", str(_PREPARED_ROOT)))
+    checkpoints_root = Path(cfg["paths"].get("checkpoints_root", str(_CHECKPOINTS_ROOT)))
+
     parser = argparse.ArgumentParser(
-        description="Run inference with a trained kvant model and save evaluation CSVs."
+        description="Run inference with a trained kvant model and save evaluation CSVs.",
+        parents=[pre_parser],
+    )
+    parser.add_argument(
+        "--experiment-id",
+        default=cfg["predict"].get("experiment_id", "last"),
+        help="Prepared experiment ID under configured prepared_root, or 'last'.",
     )
     parser.add_argument(
         "--exp-dir",
@@ -45,7 +65,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--model",
-        default="conv1d",
+        default=cfg["predict"].get("model", "conv1d"),
         help="Model architecture key — one of: conv1d, conv3d, resnls, tsb.",
     )
     parser.add_argument(
@@ -58,40 +78,44 @@ def main() -> None:
     )
     parser.add_argument(
         "--split",
-        default="test",
+        default=cfg["predict"].get("split", "test"),
         choices=["train", "val", "test"],
         help="Which data split to evaluate (default: test).",
     )
     parser.add_argument(
         "--tickers",
-        default=None,
+        default=default_tickers,
         nargs="+",
         help="Optional: evaluate only these tickers (e.g. --tickers AAPL MSFT).",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(remaining)
 
     # Resolve experiment directory
     if args.exp_dir is not None:
         exp_dir = Path(args.exp_dir)
     else:
-        last_file = _PREPARED_ROOT / "last_experiment.txt"
-        if not last_file.exists():
-            raise SystemExit(f"No last_experiment.txt found in {_PREPARED_ROOT}. Pass --exp-dir explicitly.")
-        exp_id = last_file.read_text().strip()
-        exp_dir = _PREPARED_ROOT / exp_id
-        print(f"Auto-detected experiment: {exp_id}")
+        exp_id = args.experiment_id
+        if exp_id == "last":
+            last_file = prepared_root / "last_experiment.txt"
+            if not last_file.exists():
+                raise SystemExit(f"No last_experiment.txt found in {prepared_root}. Pass --exp-dir explicitly.")
+            exp_id = last_file.read_text().strip()
+            print(f"Auto-detected experiment: {exp_id}")
+        exp_dir = prepared_root / exp_id
 
     # Resolve checkpoint
     if args.checkpoint is not None:
         checkpoint = Path(args.checkpoint)
     else:
-        checkpoint = _CHECKPOINTS_ROOT / exp_dir.name / args.model
+        checkpoint = checkpoints_root / exp_dir.name / args.model
         if not (checkpoint / "weights.pt").exists():
             raise SystemExit(
                 f"No checkpoint found at {checkpoint}/weights.pt. "
                 f"Train first with: uv run --env-file .env.run scripts/run_train.py --experiment-id {exp_dir.name}"
             )
         print(f"Auto-detected checkpoint: {checkpoint}")
+
+    print(f"Config: {cfg_path}")
 
     # Resolve model class from registry
     from kvant.models import MODEL_REGISTRY

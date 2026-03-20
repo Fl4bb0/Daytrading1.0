@@ -18,6 +18,8 @@ Usage
 import argparse
 from pathlib import Path
 
+from kvant.utils.pipeline_config import list_from_config, load_pipeline_config
+
 
 # Default store written by run_weekly_update.py
 _DEFAULT_STORE = Path(__file__).resolve().parents[1] / "data" / "1m"
@@ -25,18 +27,46 @@ _DEFAULT_INTERVAL = "1m"
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Prepare an ML experiment dataset.")
-    parser.add_argument(
-        "--store", default=str(_DEFAULT_STORE), metavar="DIR",
-        help=f"Directory with per-ticker CSVs from run_weekly_update.py. Default: {_DEFAULT_STORE}",
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument("--config", default=None, help="Path to pipeline TOML config.")
+    pre_args, remaining = pre_parser.parse_known_args()
+    cfg, cfg_path = load_pipeline_config(pre_args.config)
+
+    default_symbols = list_from_config(cfg["data"].get("symbols"))
+    if default_symbols == []:
+        default_symbols = None
+
+    parser = argparse.ArgumentParser(
+        description="Prepare an ML experiment dataset.",
+        parents=[pre_parser],
     )
     parser.add_argument(
-        "--symbols", nargs="+", default=None,
-        help="Restrict to these tickers. Default: all CSVs found in --store.",
+        "--store", default=cfg["paths"].get("store", str(_DEFAULT_STORE)), metavar="DIR",
+        help="Directory with per-ticker CSVs from run_weekly_update.py.",
     )
-    parser.add_argument("--val-frac",  type=float, default=0.15)
-    parser.add_argument("--test-frac", type=float, default=0.15)
-    args = parser.parse_args()
+    parser.add_argument(
+        "--symbols", nargs="+", default=default_symbols,
+        help="Restrict to these tickers. Default: config symbols or all CSVs in --store.",
+    )
+    parser.add_argument("--interval", type=str, default=cfg["data"].get("interval", _DEFAULT_INTERVAL))
+    parser.add_argument("--val-frac",  type=float, default=float(cfg["prepare"].get("val_frac", 0.15)))
+    parser.add_argument("--test-frac", type=float, default=float(cfg["prepare"].get("test_frac", 0.15)))
+    parser.add_argument("--lookback", type=int, default=int(cfg["prepare"].get("lookback", 20)))
+    parser.add_argument("--width-minutes", type=int, default=int(cfg["prepare"].get("width_minutes", 20)))
+    parser.add_argument("--height-pct", type=float, default=float(cfg["prepare"].get("height_pct", 0.5)))
+    parser.add_argument(
+        "--target-bars-per-day",
+        type=int,
+        default=int(cfg["prepare"].get("target_bars_per_day", 195)),
+    )
+    parser.add_argument(
+        "--volatility-scaled-barrier",
+        action=argparse.BooleanOptionalAction,
+        default=bool(cfg["prepare"].get("volatility_scaled_barrier", True)),
+    )
+    parser.add_argument("--vol-scale-min", type=float, default=float(cfg["prepare"].get("vol_scale_min", 0.5)))
+    parser.add_argument("--vol-scale-max", type=float, default=float(cfg["prepare"].get("vol_scale_max", 2.0)))
+    args = parser.parse_args(remaining)
 
     store_dir = Path(args.store)
     if not store_dir.exists():
@@ -53,6 +83,7 @@ def main():
         raise SystemExit(f"Tickers not found in {store_dir}: {missing}")
 
     print(f"Store    : {store_dir.resolve()}")
+    print(f"Config   : {cfg_path}")
     print(f"Tickers  : {symbols}")
 
     # Load DataFrames from the local store
@@ -80,7 +111,16 @@ def main():
     if not train_dfs:
         raise SystemExit("No tickers had enough data after splitting.")
 
-    sampler, fe, labeler, cfg = build_default_components(interval=_DEFAULT_INTERVAL)
+    sampler, fe, labeler, cfg = build_default_components(
+        interval=args.interval,
+        volatility_scaled_barrier=args.volatility_scaled_barrier,
+        vol_scale_min=args.vol_scale_min,
+        vol_scale_max=args.vol_scale_max,
+        lookback_L=args.lookback,
+        width_minutes=args.width_minutes,
+        height_pct=args.height_pct,
+        target_bars_per_day=args.target_bars_per_day,
+    )
 
     PREPARED_DATA_ROOT.mkdir(parents=True, exist_ok=True)
     manifest = prepare_experiment(

@@ -49,6 +49,9 @@ DEFAULT_PIPELINE_CONFIG: dict[str, Any] = {
         "tickers": [],
         "required_buy_probability": 0.6,
         "required_sell_probability": 0.6,
+        "execution_priority": "model_confidence",
+        "top_k_per_timestamp": None,
+        "ticker_cooldown_minutes": 0,
     },
     "daily": {
         "roll_forward": True,
@@ -125,6 +128,23 @@ def _validate_config(cfg: dict[str, Any], path: Path) -> None:
         if value < 0.0 or value > 1.0:
             raise SystemExit(f"predict.{key} must be between 0 and 1 in {path}")
 
+    execution_priority = str(cfg["predict"].get("execution_priority", "model_confidence"))
+    if execution_priority not in {"first_seen", "model_confidence"}:
+        raise SystemExit(
+            "predict.execution_priority must be one of "
+            "first_seen|model_confidence in "
+            f"{path}"
+        )
+
+    top_k_per_timestamp = cfg["predict"].get("top_k_per_timestamp")
+    if top_k_per_timestamp not in (None, "", 0):
+        if int(top_k_per_timestamp) <= 0:
+            raise SystemExit(f"predict.top_k_per_timestamp must be > 0 in {path}")
+
+    ticker_cooldown_minutes = int(cfg["predict"].get("ticker_cooldown_minutes", 0))
+    if ticker_cooldown_minutes < 0:
+        raise SystemExit(f"predict.ticker_cooldown_minutes must be >= 0 in {path}")
+
 
 def list_from_config(value: Any) -> list[str] | None:
     if value is None:
@@ -134,4 +154,3 @@ def list_from_config(value: Any) -> list[str] | None:
     if isinstance(value, list):
         return [str(v) for v in value]
     raise SystemExit("Expected a list or string in pipeline config")
-

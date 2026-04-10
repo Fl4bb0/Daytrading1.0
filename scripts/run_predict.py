@@ -50,6 +50,10 @@ def main() -> None:
     tickers = tickers if tickers else None
     required_buy_probability = float(predict_cfg.get("required_buy_probability", 0.0))
     required_sell_probability = float(predict_cfg.get("required_sell_probability", 0.0))
+    execution_priority = str(predict_cfg.get("execution_priority", "model_confidence"))
+    top_k_raw = predict_cfg.get("top_k_per_timestamp")
+    top_k_per_timestamp = None if top_k_raw in (None, "", 0) else int(top_k_raw)
+    ticker_cooldown_minutes = int(predict_cfg.get("ticker_cooldown_minutes", 0))
 
     checkpoint = checkpoints_root / exp_dir.name / model_name
     if not (checkpoint / "weights.pt").exists():
@@ -82,6 +86,9 @@ def main() -> None:
         tickers    = tickers,
         required_buy_probability=required_buy_probability,
         required_sell_probability=required_sell_probability,
+        execution_priority=execution_priority,
+        top_k_per_timestamp=top_k_per_timestamp,
+        ticker_cooldown_minutes=ticker_cooldown_minutes,
     )
 
 

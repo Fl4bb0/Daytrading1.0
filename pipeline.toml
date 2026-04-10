@@ -17,13 +17,13 @@ daily_budget = 25
 val_frac = 0.15
 test_frac = 0.15
 lookback = 20
-width_minutes = 20
-height_pct = 0.5
-target_bars_per_day = 195
+width_minutes = 40
+height_pct = 1
+target_bars_per_day = 50
 volatility_scaled_barrier = true
 vol_scale_min = 0.5
 vol_scale_max = 2.0
-skip_opening_minutes = 0
+skip_opening_minutes = 30
 
 [train]
 experiment_id = "last"
@@ -39,8 +39,11 @@ experiment_id = "last"
 model = "resnls"
 split = "test"
 tickers = []
-required_buy_probability = 0.48
-required_sell_probability = 0.48
+required_buy_probability = 0.62
+required_sell_probability = 0.62
+execution_priority = "model_confidence"
+top_k_per_timestamp = 2
+ticker_cooldown_minutes = 60
 
 [daily]
 roll_forward = true

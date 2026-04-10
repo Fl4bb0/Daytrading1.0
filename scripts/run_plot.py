@@ -366,6 +366,105 @@ def _buy_and_hold_return(eq_df) -> float | None:
 
 
 # ---------------------------------------------------------------------------
+# 06b — Equity curve vs time (with time-indexed B&H)
+# ---------------------------------------------------------------------------
+def plot_equity_curve_time(dfs: dict, out_dir: Path, show: bool) -> None:
+    import matplotlib.pyplot as plt
+    import matplotlib.dates as mdates
+    import pandas as pd
+    import numpy as np
+
+    if "equity_curve" not in dfs:
+        print("  [skip] No equity_curve data — skipping time-based equity curve.")
+        return
+
+    df = dfs["equity_curve"].copy()
+    if df.empty:
+        print("  [skip] equity_curve.csv is empty — skipping time-based equity curve.")
+        return
+    if "timestamp" not in df.columns or "cumulative_portfolio_pnl_pct" not in df.columns:
+        print("  [skip] equity_curve.csv missing required columns — skipping time-based equity curve.")
+        return
+
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", utc=True)
+    df = df.dropna(subset=["timestamp", "cumulative_portfolio_pnl_pct"]).sort_values("timestamp").reset_index(drop=True)
+    if len(df) == 0:
+        print("  [skip] equity_curve.csv has no valid rows after parsing — skipping time-based equity curve.")
+        return
+
+    t_min = df["timestamp"].iloc[0]
+    t_max = df["timestamp"].iloc[-1]
+    ts = df["timestamp"].values
+    port = df["cumulative_portfolio_pnl_pct"].values
+
+    # --- Build time-indexed B&H curve from raw 1m CSVs ---
+    store_dir = _PROJECT_ROOT / "data" / "1m"
+    bnh_series = None
+    if store_dir.exists() and "ticker" in df.columns:
+        tickers = df["ticker"].unique()
+        cum_returns = []
+        for ticker in tickers:
+            csv_path = store_dir / f"{ticker}.csv"
+            if not csv_path.exists():
+                continue
+            raw = pd.read_csv(csv_path, parse_dates=["timestamp"], index_col="timestamp")
+            if raw.index.tz is None:
+                raw.index = raw.index.tz_localize("UTC")
+            if "close" not in raw.columns:
+                continue
+            sliced = raw.loc[t_min:t_max, "close"].dropna()
+            if len(sliced) < 2:
+                continue
+            cum_ret = (sliced / float(sliced.iloc[0]) - 1.0) * 100.0
+            cum_returns.append(cum_ret)
+
+        if cum_returns:
+            combined = pd.concat(cum_returns, axis=1, sort=True).sort_index().ffill()
+            bnh_series = combined.mean(axis=1)
+
+    has_net = "cumulative_portfolio_pnl_net_pct" in df.columns
+
+    fig, ax = plt.subplots(figsize=(14, 5))
+    title_parts = []
+
+    # Portfolio gross — step plot, shading done separately without `where`
+    ax.plot(ts, port, linewidth=1.5, color="#4C72B0",
+            drawstyle="steps-post", label="Portfolio (gross)")
+    ax.fill_between(ts, port, 0, alpha=0.1, color="red", step="post")
+
+    title_parts.append(f"portfolio: {float(port[-1]):+.2f}%")
+
+    # Portfolio net of fees
+    if has_net:
+        net = df["cumulative_portfolio_pnl_net_pct"].values
+        ax.plot(ts, net, linewidth=1.5, color="#DD8452",
+                drawstyle="steps-post", label="Portfolio (net of fees)")
+        title_parts.append(f"net: {float(net[-1]):+.2f}%")
+
+    # B&H over time (continuous)
+    if bnh_series is not None and len(bnh_series) > 1:
+        bnh_final = float(bnh_series.iloc[-1])
+        ax.plot(bnh_series.index, bnh_series.values, linewidth=1.2,
+                color="#7f7f7f", linestyle="--", label=f"Buy & Hold ({bnh_final:+.2f}%)")
+        title_parts.append(f"B&H: {bnh_final:+.2f}%")
+
+    if "skipped" in df.columns:
+        n_skipped = int(df["skipped"].sum())
+        title_parts.append(f"{n_skipped}/{len(df)} skipped")
+
+    ax.axhline(0, color="black", linewidth=0.8, linestyle="--")
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    fig.autofmt_xdate(rotation=30)
+    ax.set_xlabel("Time")
+    ax.set_ylabel("Cumulative PnL (%)")
+    ax.set_title(f"Equity Curve  ({',  '.join(title_parts)})", fontweight="bold")
+    ax.legend()
+    ax.grid(alpha=0.3)
+    _save(fig, out_dir / "06b_equity_curve_time.png", show)
+
+
+# ---------------------------------------------------------------------------
 # 07 — Trade stats per ticker
 # ---------------------------------------------------------------------------
 def plot_trade_stats(dfs: dict, out_dir: Path, show: bool) -> None:
@@ -719,6 +818,7 @@ def main() -> None:
     plot_prediction_distribution(dfs, out_dir, show)
     plot_per_ticker_accuracy(dfs, out_dir, show)
     plot_equity_curve(dfs, out_dir, show)
+    plot_equity_curve_time(dfs, out_dir, show)
     plot_trade_stats(dfs, out_dir, show)
     plot_prob_distributions(dfs, out_dir, show)
     plot_directional_drift(dfs, out_dir, show)

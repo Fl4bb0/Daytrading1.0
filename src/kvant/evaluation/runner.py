@@ -39,6 +39,7 @@ from kvant.training.metrics import (
 # Label names (must match label convention: 0=SHORT, 1=HOLD, 2=BUY)
 _LABEL_NAMES = ["SHORT", "HOLD", "BUY"]
 _LABEL_IDS   = [0, 1, 2]
+_EXECUTION_PRIORITIES = {"first_seen", "model_confidence"}
 
 
 def evaluate_experiment(
@@ -52,6 +53,9 @@ def evaluate_experiment(
     n_pools: int = 10,
     required_buy_probability: float = 0.0,
     required_sell_probability: float = 0.0,
+    execution_priority: str = "model_confidence",
+    top_k_per_timestamp: Optional[int] = None,
+    ticker_cooldown_minutes: int = 0,
 ) -> Path:
     """
     Load artifacts, run inference, compute statistics, and save all results as CSV.
@@ -69,15 +73,35 @@ def evaluate_experiment(
     n_pools    : Number of equal capital pools for position sizing (default 10).
                  Each trade uses 1/n_pools of total capital. Trades arriving
                  when all pools are occupied are skipped.
+    execution_priority : How same-timestamp candidate trades compete for free
+                 capital pools. ``"first_seen"`` preserves existing order;
+                 ``"model_confidence"`` prioritizes higher predicted-side
+                 class probability first.
+    top_k_per_timestamp : Optional cap on how many candidate trades can be
+                 considered per timestamp after ranking. ``None`` disables
+                 the cap.
+    ticker_cooldown_minutes : Minimum wait time before the same ticker can
+                 open another trade. ``0`` disables the cooldown.
 
     Returns
     -------
     out_dir (as resolved Path)
     """
-    exp_dir    = Path(exp_dir)
+    exp_dir = Path(exp_dir)
     model_path = Path(model_path)
-    out_dir    = Path(out_dir)
+    out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    execution_priority = str(execution_priority)
+    if execution_priority not in _EXECUTION_PRIORITIES:
+        raise ValueError(
+            f"execution_priority must be one of {sorted(_EXECUTION_PRIORITIES)}, "
+            f"got {execution_priority!r}"
+        )
+    if top_k_per_timestamp is not None and int(top_k_per_timestamp) <= 0:
+        raise ValueError("top_k_per_timestamp must be > 0 when provided")
+    ticker_cooldown_minutes = int(ticker_cooldown_minutes)
+    if ticker_cooldown_minutes < 0:
+        raise ValueError("ticker_cooldown_minutes must be >= 0")
 
     # ------------------------------------------------------------------
     # 1. Load artifacts from disk
@@ -203,7 +227,15 @@ def evaluate_experiment(
     # ------------------------------------------------------------------
     # 7. equity_curve.csv
     # ------------------------------------------------------------------
-    _save_equity_curve(pred_df, out_dir / "equity_curve.csv", fee=fee, n_pools=n_pools)
+    _save_equity_curve(
+        pred_df,
+        out_dir / "equity_curve.csv",
+        fee=fee,
+        n_pools=n_pools,
+        execution_priority=execution_priority,
+        top_k_per_timestamp=top_k_per_timestamp,
+        ticker_cooldown_minutes=ticker_cooldown_minutes,
+    )
 
     # ------------------------------------------------------------------
     # 8. label_distribution.csv
@@ -254,6 +286,9 @@ def evaluate_experiment(
         "tickers":         ",".join(sorted(ticker_map.values())),
         "required_buy_probability": float(required_buy_probability),
         "required_sell_probability": float(required_sell_probability),
+        "execution_priority": execution_priority,
+        "top_k_per_timestamp": "" if top_k_per_timestamp is None else int(top_k_per_timestamp),
+        "ticker_cooldown_minutes": ticker_cooldown_minutes,
         "n_thresholded_to_hold": n_thresholded_to_hold,
     }
     pd.DataFrame([run_meta]).to_csv(out_dir / "run_meta.csv", index=False)
@@ -274,6 +309,9 @@ def _save_equity_curve(
     out_path: Path,
     fee: float = BROKERAGE_FEE,
     n_pools: int = 10,
+    execution_priority: str = "model_confidence",
+    top_k_per_timestamp: Optional[int] = None,
+    ticker_cooldown_minutes: int = 0,
 ) -> None:
     """
     Build and save a cumulative portfolio PnL equity curve.
@@ -287,8 +325,21 @@ def _save_equity_curve(
     portfolio impact is ``trade_pnl_pct / n_pools``.
 
     Both gross (theoretical, no pool limit) and portfolio-level columns
-    (with pool allocation and optional fees) are included.
+    (with pool allocation and optional fees) are included. When several
+    trades share the same timestamp, ``execution_priority`` decides which
+    ones claim scarce pools first. ``top_k_per_timestamp`` and
+    ``ticker_cooldown_minutes`` can further reduce execution churn.
     """
+    if execution_priority not in _EXECUTION_PRIORITIES:
+        raise ValueError(
+            f"execution_priority must be one of {sorted(_EXECUTION_PRIORITIES)}, "
+            f"got {execution_priority!r}"
+        )
+    if top_k_per_timestamp is not None and int(top_k_per_timestamp) <= 0:
+        raise ValueError("top_k_per_timestamp must be > 0 when provided")
+    ticker_cooldown_minutes = int(ticker_cooldown_minutes)
+    if ticker_cooldown_minutes < 0:
+        raise ValueError("ticker_cooldown_minutes must be >= 0")
     round_trip_fee_pct = 2.0 * float(fee) * 100.0   # percentage points
 
     _empty_cols = [
@@ -299,17 +350,12 @@ def _save_equity_curve(
         "pools_busy", "skipped",
     ]
 
-    # Collect candidate trades (sorted by entry time).
-    # Predictions are already thresholded upstream, so we only use y_pred.
-    candidates = []
-    for _, row in pred_df.sort_values("timestamp").iterrows():
-        yp = int(row["y_pred"])
-        pnl_frac = row.get("pnl_fraction")
-        if not isinstance(pnl_frac, (int, float)) or np.isnan(float(pnl_frac)):
-            continue
-        if yp not in (0, 2):
-            continue
-        candidates.append(row)
+    candidates = _collect_candidate_trades(
+        pred_df,
+        execution_priority=execution_priority,
+        top_k_per_timestamp=top_k_per_timestamp,
+        ticker_cooldown_minutes=ticker_cooldown_minutes,
+    )
 
     if not candidates:
         pd.DataFrame(columns=_empty_cols).to_csv(out_path, index=False)
@@ -362,6 +408,91 @@ def _save_equity_curve(
     eq_df["cumulative_portfolio_pnl_pct"] = eq_df["portfolio_pnl_pct"].cumsum()
     eq_df["cumulative_portfolio_pnl_net_pct"] = eq_df["portfolio_pnl_net_pct"].cumsum()
     eq_df.to_csv(out_path, index=False)
+
+
+def _collect_candidate_trades(
+    pred_df: pd.DataFrame,
+    *,
+    execution_priority: str,
+    top_k_per_timestamp: Optional[int],
+    ticker_cooldown_minutes: int,
+) -> list[pd.Series]:
+    """Return eligible trades ordered for execution at each timestamp."""
+    pnl_frac = pd.to_numeric(pred_df.get("pnl_fraction"), errors="coerce")
+    candidate_mask = pred_df["y_pred"].isin([0, 2]) & pnl_frac.notna()
+    if not candidate_mask.any():
+        return []
+
+    candidates = pred_df.loc[candidate_mask].copy()
+    candidates["_candidate_order"] = np.arange(len(candidates), dtype=np.int64)
+    candidates = candidates.sort_values(["timestamp", "_candidate_order"], kind="mergesort")
+
+    if execution_priority == "model_confidence":
+        score = _execution_priority_score(candidates)
+        if score.notna().all():
+            candidates["_execution_score"] = score
+            candidates = candidates.sort_values(
+                ["timestamp", "_execution_score", "_candidate_order"],
+                ascending=[True, False, True],
+                kind="mergesort",
+            )
+
+    if top_k_per_timestamp is not None:
+        candidates = candidates.groupby("timestamp", group_keys=False).head(int(top_k_per_timestamp))
+
+    if ticker_cooldown_minutes > 0:
+        candidates = _apply_ticker_cooldown(candidates, ticker_cooldown_minutes=ticker_cooldown_minutes)
+
+    return [row for _, row in candidates.iterrows()]
+
+
+def _execution_priority_score(candidate_df: pd.DataFrame) -> pd.Series:
+    """Predicted-side class probability used to prioritize simultaneous trades."""
+    score = pd.Series(np.nan, index=candidate_df.index, dtype=float)
+
+    if "prob_SHORT" in candidate_df.columns:
+        short_mask = candidate_df["y_pred"].astype(int) == 0
+        score.loc[short_mask] = pd.to_numeric(
+            candidate_df.loc[short_mask, "prob_SHORT"],
+            errors="coerce",
+        )
+
+    if "prob_BUY" in candidate_df.columns:
+        buy_mask = candidate_df["y_pred"].astype(int) == 2
+        score.loc[buy_mask] = pd.to_numeric(
+            candidate_df.loc[buy_mask, "prob_BUY"],
+            errors="coerce",
+        )
+
+    return score
+
+
+def _apply_ticker_cooldown(
+    candidate_df: pd.DataFrame,
+    *,
+    ticker_cooldown_minutes: int,
+) -> pd.DataFrame:
+    """Drop trades that arrive too soon after a prior entry in the same ticker."""
+    if candidate_df.empty or ticker_cooldown_minutes <= 0:
+        return candidate_df
+
+    cooldown = pd.Timedelta(minutes=int(ticker_cooldown_minutes))
+    keep_rows: list[pd.Series] = []
+    last_entry_by_ticker: dict[str, pd.Timestamp] = {}
+
+    for _, row in candidate_df.iterrows():
+        ticker = str(row["ticker"])
+        entry_ts = row["timestamp"]
+        last_entry = last_entry_by_ticker.get(ticker)
+        if last_entry is not None and entry_ts < last_entry + cooldown:
+            continue
+        last_entry_by_ticker[ticker] = entry_ts
+        keep_rows.append(row)
+
+    if not keep_rows:
+        return candidate_df.iloc[0:0].copy()
+
+    return pd.DataFrame(keep_rows).reset_index(drop=True)
 
 
 def _apply_action_probability_thresholds(
@@ -483,4 +614,3 @@ def _compute_directional_calibration(pred_df: pd.DataFrame) -> Optional[pd.DataF
                 "avg_signed_pnl_pct": avg_signed_pnl_pct,
             })
     return pd.DataFrame(rows)
-

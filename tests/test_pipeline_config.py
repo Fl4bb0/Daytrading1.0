@@ -63,7 +63,48 @@ class PipelineConfigTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 load_pipeline_config(cfg_path)
 
+    def test_validation_rejects_invalid_execution_priority(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_path = Path(tmpdir) / "pipeline.toml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "[predict]",
+                        "execution_priority = \"highest_prob\"",
+                    ]
+                )
+            )
+            with self.assertRaises(SystemExit):
+                load_pipeline_config(cfg_path)
+
+    def test_validation_rejects_invalid_top_k_per_timestamp(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_path = Path(tmpdir) / "pipeline.toml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "[predict]",
+                        "top_k_per_timestamp = -1",
+                    ]
+                )
+            )
+            with self.assertRaises(SystemExit):
+                load_pipeline_config(cfg_path)
+
+    def test_validation_rejects_negative_ticker_cooldown_minutes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_path = Path(tmpdir) / "pipeline.toml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "[predict]",
+                        "ticker_cooldown_minutes = -5",
+                    ]
+                )
+            )
+            with self.assertRaises(SystemExit):
+                load_pipeline_config(cfg_path)
+
 
 if __name__ == "__main__":
     unittest.main()
-

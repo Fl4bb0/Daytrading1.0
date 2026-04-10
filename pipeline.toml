@@ -9,7 +9,7 @@ sync_state = "sync_state.json"
 
 [data]
 interval = "1m"
-symbols = []
+symbols = ["AAPL", "ABNB", "ACN", "ADBE", "ADI", "AFRM", "AI", "AMAT", "AMD", "AMZN", "ANET", "APPS", "ARM", "ASML", "AVGO", "BABA", "BIDU", "BILI", "CDNS", "CFLT", "COIN", "CRM", "CRWD", "CSCO", "CTSH", "DDOG", "DELL", "DOCU", "ESTC", "FIS", "FISV", "FTNT", "GLOB", "GOOG", "GOOGL", "GPN", "HPE", "HPQ", "HUBS", "IBM", "INFY", "INTC", "INTU", "IOT", "JD", "KLAC", "LRCX", "MA", "MCHP", "MDB", "MELI", "META", "MPWR", "MRVL", "MSFT", "MU", "NET", "NFLX", "NOW", "NTAP", "NTES", "NVDA", "NXPI", "OKTA", "ON", "ORCL", "PANW", "PATH", "PDD", "PLTR", "PYPL", "QCOM", "QRVO", "RBLX", "ROKU", "SAP", "SE", "SHOP", "SMCI", "SNOW", "SNPS", "SONY", "SPOT", "STX", "SWKS", "TCEHY", "TCOM", "TEAM", "TSLA", "TSM", "TWLO", "TXN", "U", "UBER", "V", "VEEV", "WDC", "WIT", "ZM", "ZS"]
 prepost = false
 daily_budget = 25
 
@@ -23,6 +23,7 @@ target_bars_per_day = 195
 volatility_scaled_barrier = true
 vol_scale_min = 0.5
 vol_scale_max = 2.0
+skip_opening_minutes = 0
 
 [train]
 experiment_id = "last"
@@ -51,4 +52,3 @@ model = "resnls"
 split = "test"
 show = false
 # out_dir = "prepared/<exp-id>/eval/<model>_<split>/figures"
-

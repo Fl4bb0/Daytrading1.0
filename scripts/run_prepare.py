@@ -54,6 +54,19 @@ def main():
     store = OHLCVStore(store_dir)
     ticker_dfs = store.load_all(symbols)
 
+    # Optionally drop bars from the first N minutes after NYSE open (9:30 ET).
+    # Applied before the train/val/test split so all splits are filtered uniformly.
+    skip_opening_minutes = int(cfg["prepare"].get("skip_opening_minutes", 0))
+    if skip_opening_minutes > 0:
+        import pandas as pd
+        cutoff_minutes_since_midnight = 9 * 60 + 30 + skip_opening_minutes
+        for sym in list(ticker_dfs.keys()):
+            df = ticker_dfs[sym]
+            idx_et = df.index.tz_convert("America/New_York")
+            minutes_since_midnight = idx_et.hour * 60 + idx_et.minute
+            ticker_dfs[sym] = df[minutes_since_midnight >= cutoff_minutes_since_midnight]
+        print(f"Skipping first {skip_opening_minutes} min after open (bars before 09:{30 + skip_opening_minutes:02d} ET dropped)")
+
     from kvant.experiment.prepare import build_default_components, prepare_experiment, PREPARED_DATA_ROOT
 
     # Split each ticker chronologically

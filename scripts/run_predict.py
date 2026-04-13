@@ -55,6 +55,11 @@ def main() -> None:
 
     model_names = normalize_model_names(ensemble_cfg.get("models"))
     use_ensemble = bool(model_names)
+    if use_ensemble and "conv3d" in model_names:
+        raise SystemExit(
+            "conv3d cannot be used in ensemble mode in the current pipeline. "
+            "Use non-conv3d models together, or run conv3d as a standalone model"
+        )
     if use_ensemble:
         active_model_name = ensemble_slug(model_names)
     else:

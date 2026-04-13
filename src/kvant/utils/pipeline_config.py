@@ -124,16 +124,39 @@ def _validate_config(cfg: dict[str, Any], path: Path) -> None:
         raise SystemExit(f"target_bars_per_day must be > 0 in {path}")
 
     ensemble_models = list_from_config(cfg.get("ensemble", {}).get("models")) or []
+
+    from kvant.models import MODEL_REGISTRY
+
+    single_train_model = str(cfg["train"].get("model", "conv1d"))
+    if single_train_model not in MODEL_REGISTRY:
+        raise SystemExit(
+            f"Unknown train.model '{single_train_model}' in {path}. "
+            f"Available: {list(MODEL_REGISTRY.keys())}"
+        )
+
+    single_predict_model = str(cfg["predict"].get("model", "conv1d"))
+    if single_predict_model not in MODEL_REGISTRY:
+        raise SystemExit(
+            f"Unknown predict.model '{single_predict_model}' in {path}. "
+            f"Available: {list(MODEL_REGISTRY.keys())}"
+        )
+
     if ensemble_models:
         if len(set(ensemble_models)) != len(ensemble_models):
             raise SystemExit(f"ensemble.models must not contain duplicates in {path}")
-        from kvant.models import MODEL_REGISTRY
 
         unknown = [name for name in ensemble_models if name not in MODEL_REGISTRY]
         if unknown:
             raise SystemExit(
                 f"Unknown model(s) in ensemble.models {unknown} in {path}. "
                 f"Available: {list(MODEL_REGISTRY.keys())}"
+            )
+
+        unsupported_in_ensemble = [name for name in ensemble_models if name == "conv3d"]
+        if unsupported_in_ensemble:
+            raise SystemExit(
+                f"ensemble.models contains unsupported model(s) {unsupported_in_ensemble} in {path}. "
+                "conv3d requires multi-timeframe tensors and cannot be mixed in the current ensemble pipeline"
             )
 
     if str(cfg["predict"]["split"]) not in {"train", "val", "test"}:

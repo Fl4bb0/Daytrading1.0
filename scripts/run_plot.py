@@ -298,8 +298,8 @@ def plot_equity_curve(dfs: dict, out_dir: Path, show: bool) -> None:
         final_net = float(net.iloc[-1])
         title_parts.append(f"net: {final_net:+.2f}%")
 
-    # Buy-and-hold benchmark (equal-weight across tickers in the test set)
-    bnh_return = _buy_and_hold_return(df)
+    # Buy-and-hold benchmark (equal-weight across evaluated tickers)
+    bnh_return = _buy_and_hold_return(df, dfs.get("predictions"))
     if bnh_return is not None:
         # Interpolate the B&H return linearly across trade indices so the
         # x-axis (Trade #) stays consistent with the other curves.
@@ -322,13 +322,13 @@ def plot_equity_curve(dfs: dict, out_dir: Path, show: bool) -> None:
     _save(fig, out_dir / "06_equity_curve.png", show)
 
 
-def _buy_and_hold_return(eq_df) -> float | None:
+def _buy_and_hold_return(eq_df, predictions_df=None) -> float | None:
     """
-    Compute equal-weight buy-and-hold return over the test period.
+    Compute equal-weight buy-and-hold return over the active trading window.
 
-    Uses the raw 1m CSVs in data/1m/ for each ticker present in the equity
-    curve.  Returns the average per-ticker cumulative return (%) from the
-    first to the last trade timestamp, or None if price data is unavailable.
+    Window: first possible trade timestamp to last possible trade timestamp,
+    derived from equity_curve rows. Universe: evaluated tickers from
+    predictions.csv when available; falls back to equity curve tickers.
     """
     import pandas as pd
 
@@ -336,15 +336,27 @@ def _buy_and_hold_return(eq_df) -> float | None:
     if not store_dir.exists():
         return None
 
-    if "timestamp" not in eq_df.columns or "ticker" not in eq_df.columns:
+    if "timestamp" not in eq_df.columns:
         return None
 
-    timestamps = pd.to_datetime(eq_df["timestamp"], utc=True)
-    t_min, t_max = timestamps.min(), timestamps.max()
-    if pd.isna(t_min) or pd.isna(t_max) or t_min == t_max:
+    trade_ts = pd.to_datetime(eq_df["timestamp"], errors="coerce", utc=True).dropna()
+    if len(trade_ts) < 2:
+        return None
+    t_min = trade_ts.min()
+    t_max = trade_ts.max()
+
+    ticker_values = None
+    if predictions_df is not None and "ticker" in predictions_df.columns:
+        ticker_values = predictions_df["ticker"]
+    elif "ticker" in eq_df.columns:
+        ticker_values = eq_df["ticker"]
+    if ticker_values is None:
         return None
 
-    tickers = eq_df["ticker"].unique()
+    tickers = [str(t) for t in pd.Series(ticker_values).dropna().unique().tolist()]
+    if not tickers:
+        return None
+
     returns = []
     for ticker in tickers:
         csv_path = store_dir / f"{ticker}.csv"
@@ -402,7 +414,10 @@ def plot_equity_curve_time(dfs: dict, out_dir: Path, show: bool) -> None:
     store_dir = _PROJECT_ROOT / "data" / "1m"
     bnh_series = None
     if store_dir.exists() and "ticker" in df.columns:
-        tickers = df["ticker"].unique()
+        if "predictions" in dfs and "ticker" in dfs["predictions"].columns:
+            tickers = dfs["predictions"]["ticker"].dropna().unique()
+        else:
+            tickers = df["ticker"].dropna().unique()
         cum_returns = []
         for ticker in tickers:
             csv_path = store_dir / f"{ticker}.csv"

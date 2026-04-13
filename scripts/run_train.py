@@ -69,6 +69,11 @@ def main() -> None:
         raise SystemExit(f"Experiment directory not found: {exp_dir}")
 
     model_names = normalize_model_names(ensemble_cfg.get("models")) or [str(train_cfg.get("model", "conv1d"))]
+    if len(model_names) > 1 and "conv3d" in model_names:
+        raise SystemExit(
+            "conv3d cannot be used in ensemble mode in the current pipeline. "
+            "Use non-conv3d models together, or run conv3d as a standalone model"
+        )
 
     print(f"Experiment : {exp_dir}")
     print(f"Config     : {cfg_path}")

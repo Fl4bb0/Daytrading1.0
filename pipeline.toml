@@ -39,8 +39,8 @@ experiment_id = "last"
 model = "resnls"
 split = "test"
 tickers = []
-required_buy_probability = 0.62
-required_sell_probability = 0.62
+required_buy_probability = 0.5
+required_sell_probability = 0.5
 execution_priority = "model_confidence"
 top_k_per_timestamp = 2
 ticker_cooldown_minutes = 60
@@ -57,4 +57,4 @@ show = false
 # out_dir = "prepared/<exp-id>/eval/<model>_<split>/figures"
 
 [ensemble]
-models = []
+models = ["resnls", "conv1d", "tsb"]

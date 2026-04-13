@@ -148,6 +148,48 @@ class PipelineConfigTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 load_pipeline_config(cfg_path)
 
+    def test_validation_rejects_conv3d_inside_ensemble_models(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_path = Path(tmpdir) / "pipeline.toml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "[ensemble]",
+                        "models = [\"resnls\", \"conv3d\"]",
+                    ]
+                )
+            )
+            with self.assertRaises(SystemExit):
+                load_pipeline_config(cfg_path)
+
+    def test_validation_rejects_unknown_train_model(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_path = Path(tmpdir) / "pipeline.toml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "[train]",
+                        "model = \"unknown\"",
+                    ]
+                )
+            )
+            with self.assertRaises(SystemExit):
+                load_pipeline_config(cfg_path)
+
+    def test_validation_rejects_unknown_predict_model(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_path = Path(tmpdir) / "pipeline.toml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "[predict]",
+                        "model = \"unknown\"",
+                    ]
+                )
+            )
+            with self.assertRaises(SystemExit):
+                load_pipeline_config(cfg_path)
+
 
 if __name__ == "__main__":
     unittest.main()

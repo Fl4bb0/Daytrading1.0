@@ -56,6 +56,7 @@ def evaluate_experiment(
     execution_priority: str = "model_confidence",
     top_k_per_timestamp: Optional[int] = None,
     ticker_cooldown_minutes: int = 0,
+    model: Optional[KvantModel] = None,
 ) -> Path:
     """
     Load artifacts, run inference, compute statistics, and save all results as CSV.
@@ -113,7 +114,7 @@ def evaluate_experiment(
     # ------------------------------------------------------------------
     # 2. Load model and run inference
     # ------------------------------------------------------------------
-    model    = model_cls.load(model_path)
+    model    = model if model is not None else model_cls.load(model_path)
     y_pred_raw = model.predict(X)
 
     proba: Optional[np.ndarray] = None
@@ -277,7 +278,8 @@ def evaluate_experiment(
     experiment_id = exp_dir.name
     run_meta = {
         "experiment_id":   experiment_id,
-        "model_name":      model_cls.__name__,
+        "model_name":      model.name,
+        "model_class_name": type(model).__name__,
         "model_path":      str(model_path),
         "split":           split,
         "timestamp_run":   datetime.now(tz=timezone.utc).isoformat(),

@@ -33,6 +33,9 @@ DEFAULT_PIPELINE_CONFIG: dict[str, Any] = {
         "vol_scale_min": 0.5,
         "vol_scale_max": 2.0,
     },
+    "ensemble": {
+        "models": [],
+    },
     "train": {
         "experiment_id": "last",
         "model": "conv1d",
@@ -119,6 +122,19 @@ def _validate_config(cfg: dict[str, Any], path: Path) -> None:
 
     if int(cfg["prepare"]["target_bars_per_day"]) <= 0:
         raise SystemExit(f"target_bars_per_day must be > 0 in {path}")
+
+    ensemble_models = list_from_config(cfg.get("ensemble", {}).get("models")) or []
+    if ensemble_models:
+        if len(set(ensemble_models)) != len(ensemble_models):
+            raise SystemExit(f"ensemble.models must not contain duplicates in {path}")
+        from kvant.models import MODEL_REGISTRY
+
+        unknown = [name for name in ensemble_models if name not in MODEL_REGISTRY]
+        if unknown:
+            raise SystemExit(
+                f"Unknown model(s) in ensemble.models {unknown} in {path}. "
+                f"Available: {list(MODEL_REGISTRY.keys())}"
+            )
 
     if str(cfg["predict"]["split"]) not in {"train", "val", "test"}:
         raise SystemExit(f"predict.split must be one of train|val|test in {path}")

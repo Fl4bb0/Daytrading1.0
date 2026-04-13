@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from kvant.utils.ensemble import ensemble_slug, normalize_model_names
 from kvant.utils.pipeline_config import load_pipeline_config
 
 
@@ -782,7 +783,11 @@ def main() -> None:
     paths_cfg = cfg.get("paths", {})
 
     show = bool(plot_cfg.get("show", False))
-    model_name = str(plot_cfg.get("model", predict_cfg.get("model", "conv1d")))
+    ensemble_models = normalize_model_names(cfg.get("ensemble", {}).get("models"))
+    if ensemble_models:
+        model_name = ensemble_slug(ensemble_models)
+    else:
+        model_name = str(plot_cfg.get("model", predict_cfg.get("model", "conv1d")))
     split = str(plot_cfg.get("split", predict_cfg.get("split", "test")))
     exp_id = str(plot_cfg.get("experiment_id", "last"))
 

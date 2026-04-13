@@ -2,6 +2,7 @@
 from kvant.models.base import KvantModel
 from kvant.models.conv1d import Conv1DModel
 from kvant.models.conv3d import Conv3DModel
+from kvant.models.ensemble import AveragingEnsembleModel
 from kvant.models.resnls import ResNLSModel
 from kvant.models.tsb import TSBModel
 
@@ -17,6 +18,7 @@ __all__ = [
     "KvantModel",
     "Conv1DModel",
     "Conv3DModel",
+    "AveragingEnsembleModel",
     "ResNLSModel",
     "TSBModel",
     "MODEL_REGISTRY",

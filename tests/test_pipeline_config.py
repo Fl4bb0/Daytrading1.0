@@ -28,6 +28,49 @@ class PipelineConfigTests(unittest.TestCase):
             self.assertEqual(int(cfg["prepare"]["lookback"]), 42)
             self.assertEqual(cfg["train"]["device"], "cuda")
             self.assertEqual(cfg["predict"]["split"], "test")
+            self.assertEqual(cfg["ensemble"]["models"], [])
+
+    def test_validation_accepts_known_ensemble_models(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_path = Path(tmpdir) / "pipeline.toml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "[ensemble]",
+                        "models = [\"resnls\", \"conv1d\"]",
+                    ]
+                )
+            )
+            cfg, _ = load_pipeline_config(cfg_path)
+            self.assertEqual(cfg["ensemble"]["models"], ["resnls", "conv1d"])
+
+    def test_validation_rejects_duplicate_ensemble_models(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_path = Path(tmpdir) / "pipeline.toml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "[ensemble]",
+                        "models = [\"resnls\", \"resnls\"]",
+                    ]
+                )
+            )
+            with self.assertRaises(SystemExit):
+                load_pipeline_config(cfg_path)
+
+    def test_validation_rejects_unknown_ensemble_models(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_path = Path(tmpdir) / "pipeline.toml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "[ensemble]",
+                        "models = [\"resnls\", \"unknown\"]",
+                    ]
+                )
+            )
+            with self.assertRaises(SystemExit):
+                load_pipeline_config(cfg_path)
 
     def test_validation_rejects_invalid_split_fracs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

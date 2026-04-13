@@ -55,3 +55,6 @@ model = "resnls"
 split = "test"
 show = false
 # out_dir = "prepared/<exp-id>/eval/<model>_<split>/figures"
+
+[ensemble]
+models = []

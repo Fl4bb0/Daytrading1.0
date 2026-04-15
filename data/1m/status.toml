@@ -1,5 +1,5 @@
 [AAPL]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [AAPL.days]
@@ -17,9 +17,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [ABNB]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [ABNB.days]
@@ -37,9 +39,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [ACN]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [ACN.days]
@@ -57,9 +61,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [ADBE]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [ADBE.days]
@@ -77,9 +83,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [ADI]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [ADI.days]
@@ -97,9 +105,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [AFRM]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [AFRM.days]
@@ -117,9 +127,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [AI]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [AI.days]
@@ -137,9 +149,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [AMAT]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [AMAT.days]
@@ -157,9 +171,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [AMD]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [AMD.days]
@@ -177,9 +193,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [AMZN]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [AMZN.days]
@@ -197,9 +215,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [ANET]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [ANET.days]
@@ -217,9 +237,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [APPS]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [APPS.days]
@@ -237,9 +259,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [ARM]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [ARM.days]
@@ -257,9 +281,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [ASML]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [ASML.days]
@@ -277,9 +303,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [AVGO]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [AVGO.days]
@@ -297,9 +325,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [BABA]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [BABA.days]
@@ -317,9 +347,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [BIDU]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [BIDU.days]
@@ -337,9 +369,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [BILI]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [BILI.days]
@@ -357,9 +391,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [CDNS]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [CDNS.days]
@@ -377,10 +413,12 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [CFLT]
 last_retrieved = "2026-03-13"
-missing = ["2026-03-17", "2026-03-18", "2026-03-19", "2026-04-06", "2026-04-07", "2026-04-08", "2026-04-09", "2026-04-10"]
+missing = ["2026-03-17", "2026-03-18", "2026-03-19", "2026-04-06", "2026-04-07", "2026-04-08", "2026-04-09", "2026-04-10", "2026-04-13", "2026-04-14"]
 
 [CFLT.days]
 "2026-03-09" = "ok"
@@ -397,9 +435,11 @@ missing = ["2026-03-17", "2026-03-18", "2026-03-19", "2026-04-06", "2026-04-07",
 "2026-04-08" = "unavailable"
 "2026-04-09" = "unavailable"
 "2026-04-10" = "unavailable"
+"2026-04-13" = "unavailable"
+"2026-04-14" = "unavailable"
 
 [COIN]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [COIN.days]
@@ -417,9 +457,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [CRM]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [CRM.days]
@@ -437,9 +479,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [CRWD]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [CRWD.days]
@@ -457,9 +501,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [CSCO]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [CSCO.days]
@@ -477,9 +523,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [CTSH]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [CTSH.days]
@@ -497,9 +545,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [DDOG]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [DDOG.days]
@@ -517,9 +567,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [DELL]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [DELL.days]
@@ -537,9 +589,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [DOCU]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [DOCU.days]
@@ -557,9 +611,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [ESTC]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [ESTC.days]
@@ -577,6 +633,8 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [FI]
 last_retrieved = ""
@@ -589,7 +647,7 @@ missing = ["2026-03-09", "2026-03-10", "2026-03-11", "2026-03-12"]
 "2026-03-12" = "unavailable"
 
 [FIS]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [FIS.days]
@@ -607,9 +665,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [FISV]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [FISV.days]
@@ -627,9 +687,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [FTNT]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [FTNT.days]
@@ -647,9 +709,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [GLOB]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [GLOB.days]
@@ -667,9 +731,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [GOOG]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [GOOG.days]
@@ -687,9 +753,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [GOOGL]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [GOOGL.days]
@@ -707,9 +775,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [GPN]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [GPN.days]
@@ -727,9 +797,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [HPE]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [HPE.days]
@@ -747,9 +819,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [HPQ]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [HPQ.days]
@@ -767,9 +841,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [HUBS]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [HUBS.days]
@@ -787,9 +863,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [IBM]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [IBM.days]
@@ -807,9 +885,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [INFY]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [INFY.days]
@@ -827,9 +907,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [INTC]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [INTC.days]
@@ -847,9 +929,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [INTU]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [INTU.days]
@@ -867,9 +951,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [IOT]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [IOT.days]
@@ -887,9 +973,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [JD]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [JD.days]
@@ -907,9 +995,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [KLAC]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [KLAC.days]
@@ -927,9 +1017,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [LRCX]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [LRCX.days]
@@ -947,9 +1039,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [MA]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [MA.days]
@@ -967,9 +1061,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [MCHP]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [MCHP.days]
@@ -987,9 +1083,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [MDB]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [MDB.days]
@@ -1007,9 +1105,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [MELI]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [MELI.days]
@@ -1027,9 +1127,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [META]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [META.days]
@@ -1047,9 +1149,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [MPWR]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [MPWR.days]
@@ -1067,9 +1171,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [MRVL]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [MRVL.days]
@@ -1087,9 +1193,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [MSFT]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [MSFT.days]
@@ -1107,9 +1215,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [MU]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [MU.days]
@@ -1127,9 +1237,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [NET]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [NET.days]
@@ -1147,9 +1259,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [NFLX]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [NFLX.days]
@@ -1167,9 +1281,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [NOW]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [NOW.days]
@@ -1187,9 +1303,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [NTAP]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [NTAP.days]
@@ -1207,9 +1325,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [NTES]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [NTES.days]
@@ -1227,9 +1347,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [NVDA]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [NVDA.days]
@@ -1247,9 +1369,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [NXPI]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [NXPI.days]
@@ -1267,9 +1391,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [OKTA]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [OKTA.days]
@@ -1287,9 +1413,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [ON]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [ON.days]
@@ -1307,9 +1435,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [ORCL]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [ORCL.days]
@@ -1327,9 +1457,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [PANW]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [PANW.days]
@@ -1347,9 +1479,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [PATH]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [PATH.days]
@@ -1367,9 +1501,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [PDD]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [PDD.days]
@@ -1387,9 +1523,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [PLTR]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [PLTR.days]
@@ -1407,9 +1545,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [PYPL]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [PYPL.days]
@@ -1427,9 +1567,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [QCOM]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [QCOM.days]
@@ -1447,9 +1589,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [QRVO]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [QRVO.days]
@@ -1467,9 +1611,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [RBLX]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [RBLX.days]
@@ -1487,9 +1633,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [ROKU]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [ROKU.days]
@@ -1507,9 +1655,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [SAP]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [SAP.days]
@@ -1527,9 +1677,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [SE]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [SE.days]
@@ -1547,9 +1699,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [SHOP]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [SHOP.days]
@@ -1567,9 +1721,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [SMCI]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [SMCI.days]
@@ -1587,9 +1743,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [SNOW]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [SNOW.days]
@@ -1607,9 +1765,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [SNPS]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [SNPS.days]
@@ -1627,9 +1787,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [SONY]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [SONY.days]
@@ -1647,9 +1809,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [SPOT]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [SPOT.days]
@@ -1667,6 +1831,8 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [SQ]
 last_retrieved = ""
@@ -1679,7 +1845,7 @@ missing = ["2026-03-09", "2026-03-10", "2026-03-11", "2026-03-12"]
 "2026-03-12" = "unavailable"
 
 [STX]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [STX.days]
@@ -1697,9 +1863,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [SWKS]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [SWKS.days]
@@ -1717,9 +1885,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [TCEHY]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [TCEHY.days]
@@ -1737,9 +1907,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [TCOM]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [TCOM.days]
@@ -1757,9 +1929,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [TEAM]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [TEAM.days]
@@ -1777,9 +1951,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [TSLA]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [TSLA.days]
@@ -1797,9 +1973,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [TSM]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [TSM.days]
@@ -1817,9 +1995,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [TWLO]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [TWLO.days]
@@ -1837,9 +2017,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [TXN]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [TXN.days]
@@ -1857,9 +2039,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [U]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [U.days]
@@ -1877,9 +2061,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [UBER]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [UBER.days]
@@ -1897,9 +2083,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [V]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [V.days]
@@ -1917,9 +2105,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [VEEV]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [VEEV.days]
@@ -1937,9 +2127,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [WDC]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [WDC.days]
@@ -1957,9 +2149,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [WIT]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [WIT.days]
@@ -1977,9 +2171,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [ZM]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [ZM.days]
@@ -1997,9 +2193,11 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"
 
 [ZS]
-last_retrieved = "2026-04-10"
+last_retrieved = "2026-04-14"
 missing = []
 
 [ZS.days]
@@ -2017,3 +2215,5 @@ missing = []
 "2026-04-08" = "ok"
 "2026-04-09" = "ok"
 "2026-04-10" = "ok"
+"2026-04-13" = "ok"
+"2026-04-14" = "ok"

@@ -656,18 +656,23 @@ def plot_backtest_comparison(dfs: dict, out_dir: Path, show: bool, max_tickers: 
         print("  [skip] No data/1m/ directory found — skipping backtest comparison.")
         return
 
-    tickers = pred_df["ticker"].unique()
-    if len(tickers) > max_tickers:
-        # Pick tickers with most predictions
-        counts = pred_df["ticker"].value_counts()
-        tickers = counts.head(max_tickers).index.tolist()
+    # Restrict to tickers that actually generated trades (BUY / SHORT predictions)
+    # in this eval split — HOLD-only tickers produce empty backtest panels.
+    traded_mask = pred_df["y_pred_name"].isin(["BUY", "SHORT"])
+    traded_counts = pred_df.loc[traded_mask, "ticker"].value_counts()
+    if traded_counts.empty:
+        print("  [skip] No BUY/SHORT predictions in this split — skipping backtest comparison.")
+        return
+    tickers = traded_counts.head(max_tickers).index.tolist()
 
     n = len(tickers)
     fig, axes = plt.subplots(n, 2, figsize=(18, 5 * n), squeeze=False)
     fig.suptitle("Backtest: Model Predictions vs Buy-and-Hold", fontsize=16, fontweight="bold", y=1.01)
 
-    colour_map = {"SHORT": "#d62728", "HOLD": "#7f7f7f", "BUY": "#2ca02c"}
-    marker_map = {"SHORT": "v", "HOLD": "s", "BUY": "^"}
+    # HOLD signals are intentionally omitted from the price-panel overlay:
+    # they don't open trades, so they only add visual noise.
+    colour_map = {"SHORT": "#d62728", "BUY": "#2ca02c"}
+    marker_map = {"SHORT": "v", "BUY": "^"}
 
     for row_idx, ticker in enumerate(tickers):
         ax_price = axes[row_idx, 0]

@@ -29,6 +29,7 @@ class PipelineConfigTests(unittest.TestCase):
             self.assertEqual(cfg["train"]["device"], "cuda")
             self.assertEqual(cfg["predict"]["split"], "test")
             self.assertEqual(cfg["ensemble"]["models"], [])
+            self.assertFalse(bool(cfg["meta"]["enabled"]))
 
     def test_validation_accepts_known_ensemble_models(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -114,6 +115,80 @@ class PipelineConfigTests(unittest.TestCase):
                     [
                         "[predict]",
                         "execution_priority = \"highest_prob\"",
+                    ]
+                )
+            )
+            with self.assertRaises(SystemExit):
+                load_pipeline_config(cfg_path)
+
+    def test_validation_accepts_meta_score_when_meta_enabled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_path = Path(tmpdir) / "pipeline.toml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "[predict]",
+                        "execution_priority = \"meta_score\"",
+                        "",
+                        "[meta]",
+                        "enabled = true",
+                    ]
+                )
+            )
+            cfg, _ = load_pipeline_config(cfg_path)
+            self.assertEqual(cfg["predict"]["execution_priority"], "meta_score")
+            self.assertTrue(bool(cfg["meta"]["enabled"]))
+
+    def test_validation_rejects_meta_score_when_meta_disabled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_path = Path(tmpdir) / "pipeline.toml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "[predict]",
+                        "execution_priority = \"meta_score\"",
+                    ]
+                )
+            )
+            with self.assertRaises(SystemExit):
+                load_pipeline_config(cfg_path)
+
+    def test_validation_rejects_invalid_meta_train_split(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_path = Path(tmpdir) / "pipeline.toml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "[meta]",
+                        "train_split = \"test\"",
+                    ]
+                )
+            )
+            with self.assertRaises(SystemExit):
+                load_pipeline_config(cfg_path)
+
+    def test_validation_rejects_invalid_meta_alpha(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_path = Path(tmpdir) / "pipeline.toml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "[meta]",
+                        "alpha = 0",
+                    ]
+                )
+            )
+            with self.assertRaises(SystemExit):
+                load_pipeline_config(cfg_path)
+
+    def test_validation_rejects_negative_meta_shrinkage_k(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_path = Path(tmpdir) / "pipeline.toml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "[meta]",
+                        "shrinkage_k = -1",
                     ]
                 )
             )

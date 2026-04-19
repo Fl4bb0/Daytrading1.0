@@ -88,6 +88,44 @@ class ExecutionPriorityTests(unittest.TestCase):
         self.assertTrue(bool(eq_df.loc[1, "skipped"]))
         self.assertAlmostEqual(float(eq_df.loc[1, "cumulative_portfolio_pnl_pct"]), 1.0)
 
+    def test_meta_score_prioritizes_same_timestamp_trade(self) -> None:
+        pred_df = pd.DataFrame(
+            {
+                "timestamp": pd.to_datetime(
+                    [
+                        "2025-01-02 14:30:00",
+                        "2025-01-02 14:30:00",
+                    ]
+                ),
+                "ticker": ["LOW", "HIGH"],
+                "y_pred": [2, 2],
+                "pnl_fraction": [0.01, 0.02],
+                "bar_close_time": pd.to_datetime(
+                    [
+                        "2025-01-02 14:50:00",
+                        "2025-01-02 14:50:00",
+                    ]
+                ),
+                "meta_score": [0.10, 0.25],
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_path = Path(tmpdir) / "equity_curve.csv"
+            _save_equity_curve(
+                pred_df,
+                out_path,
+                fee=0.0,
+                n_pools=1,
+                execution_priority="meta_score",
+            )
+            eq_df = pd.read_csv(out_path)
+
+        self.assertEqual(eq_df.loc[0, "ticker"], "HIGH")
+        self.assertFalse(bool(eq_df.loc[0, "skipped"]))
+        self.assertTrue(bool(eq_df.loc[1, "skipped"]))
+        self.assertAlmostEqual(float(eq_df.loc[1, "cumulative_portfolio_pnl_pct"]), 2.0)
+
     def test_top_k_per_timestamp_limits_candidates(self) -> None:
         pred_df = pd.DataFrame(
             {

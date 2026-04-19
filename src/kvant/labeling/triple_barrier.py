@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -235,6 +235,36 @@ class TripleBarrierLabeler(Labeler):
     def fit(self, df: pd.DataFrame) -> "TripleBarrierLabeler":
         df = ensure_utc_sorted_index(df)
         self._fit_reference_vol = self._series_volatility(df)
+        return self
+
+    def fit_from_ticker_dfs(
+        self, ticker_dfs: Dict[str, pd.DataFrame]
+    ) -> "TripleBarrierLabeler":
+        """
+        Fit the reference volatility from a dict of per-ticker DataFrames.
+
+        Computes each ticker's return std in isolation, then takes the median
+        across tickers as the reference. Use this instead of ``fit`` whenever
+        the corpus mixes multiple tickers: a concatenated+sorted DataFrame
+        would leak cross-ticker price jumps into ``pct_change`` and corrupt
+        the reference.
+
+        Falls back to ``None`` (no scaling) if no usable per-ticker std can
+        be computed.
+        """
+        if self.volatility_scale_mode == "none":
+            self._fit_reference_vol = None
+            return self
+
+        vols: List[float] = []
+        for df in ticker_dfs.values():
+            if df is None or len(df) == 0:
+                continue
+            v = self._series_volatility(ensure_utc_sorted_index(df))
+            if v is not None:
+                vols.append(v)
+
+        self._fit_reference_vol = float(np.median(vols)) if vols else None
         return self
 
     def transform(

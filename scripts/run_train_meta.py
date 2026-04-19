@@ -1,19 +1,15 @@
 """
-scripts/run_predict.py — Entry-point for inference + evaluation statistics.
-
-Loads a prepared experiment from disk, runs inference with a saved model
-checkpoint, computes all statistics, and writes CSV outputs.
+scripts/run_train_meta.py — Train the minimal meta ranking model on validation predictions.
 
 Usage
 -----
-  python scripts/run_predict.py
-  python scripts/run_predict.py --config pipeline.toml
-
-Available model names: conv1d, conv3d, resnls, tsb
+  python scripts/run_train_meta.py
+  python scripts/run_train_meta.py --config pipeline.toml
 """
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from kvant.utils.ensemble import ensemble_slug, normalize_model_names
@@ -26,7 +22,7 @@ _CHECKPOINTS_ROOT = _PROJECT_ROOT / "checkpoints"
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Run inference with a trained kvant model and save evaluation CSVs."
+        description="Train a meta regression model on base-model validation predictions."
     )
     parser.add_argument("--config", default="pipeline.toml", help="Pipeline TOML config path.")
     args = parser.parse_args()
@@ -49,18 +45,10 @@ def main() -> None:
 
     required_buy_probability = float(predict_cfg.get("required_buy_probability", 0.0))
     required_sell_probability = float(predict_cfg.get("required_sell_probability", 0.0))
-    execution_priority = str(predict_cfg.get("execution_priority", "model_confidence"))
-    top_k_raw = predict_cfg.get("top_k_per_timestamp")
-    top_k_per_timestamp = None if top_k_raw in (None, "", 0) else int(top_k_raw)
-    ticker_cooldown_minutes = int(predict_cfg.get("ticker_cooldown_minutes", 0))
-    meta_enabled = bool(meta_cfg.get("enabled", False))
-    meta_train_split = str(meta_cfg.get("train_split", "val"))
-    meta_shrinkage_k = float(meta_cfg.get("shrinkage_k", 10.0))
-    meta_min_score_buy_raw = meta_cfg.get("min_score_buy")
-    meta_min_score_short_raw = meta_cfg.get("min_score_short")
-    meta_min_score_buy = None if meta_min_score_buy_raw in (None, "") else float(meta_min_score_buy_raw)
-    meta_min_score_short = None if meta_min_score_short_raw in (None, "") else float(meta_min_score_short_raw)
     requested_tickers = list_from_config(predict_cfg.get("tickers")) or None
+    meta_train_split = str(meta_cfg.get("train_split", "val"))
+    meta_alpha = float(meta_cfg.get("alpha", 1.0))
+    meta_shrinkage_k = float(meta_cfg.get("shrinkage_k", 10.0))
 
     model_names = normalize_model_names(ensemble_cfg.get("models"))
     use_ensemble = bool(model_names)
@@ -107,65 +95,62 @@ def main() -> None:
             name=active_model_name,
         )
         model_path = checkpoints_root / exp_dir.name / active_model_name
-        model.save(model_path)
         model_cls = type(member_models[0])
 
-    print(f"Models: {model_names}")
-    print(f"Config: {cfg_path}")
-    print(f"Auto-detected checkpoint: {model_path}")
+    print(f"Models           : {model_names}")
+    print(f"Config           : {cfg_path}")
+    print(f"Base checkpoint  : {model_path}")
+    print(f"Meta train split : {meta_train_split}")
 
-    out_dir = exp_dir / "eval" / f"{model.name}_{str(predict_cfg.get('split', 'test'))}"
+    from kvant.evaluation import build_prediction_frame
+    from kvant.meta import META_FEATURE_COLUMNS, RidgeMetaModel, build_meta_training_frame
 
-    meta_model = None
-    meta_model_path = None
-    meta_history_pred_df = None
-    if meta_enabled or execution_priority == "meta_score":
-        from kvant.evaluation import build_prediction_frame
-        from kvant.meta import RidgeMetaModel
-
-        meta_model_path = checkpoints_root / exp_dir.name / active_model_name / "meta"
-        if not (meta_model_path / "model.pkl").exists():
-            raise SystemExit(
-                f"No meta model found at {meta_model_path}/model.pkl. "
-                "Train it first with: uv run --env-file .env.run scripts/run_train_meta.py"
-            )
-        meta_model = RidgeMetaModel.load(meta_model_path)
-
-        current_split = str(predict_cfg.get("split", "test"))
-        if current_split != meta_train_split:
-            meta_history_pred_df = build_prediction_frame(
-                exp_dir=exp_dir,
-                model_path=model_path,
-                model_cls=model_cls,
-                split=meta_train_split,
-                tickers=requested_tickers,
-                required_buy_probability=required_buy_probability,
-                required_sell_probability=required_sell_probability,
-                model=model,
-            )
-
-    from kvant.evaluation import evaluate_experiment
-    evaluate_experiment(
-        exp_dir    = exp_dir,
-        model_path = model_path,
-        model_cls  = model_cls,
-        out_dir    = out_dir,
-        split      = str(predict_cfg.get("split", "test")),
-        tickers    = requested_tickers,
+    pred_df = build_prediction_frame(
+        exp_dir=exp_dir,
+        model_path=model_path,
+        model_cls=model_cls,
+        split=meta_train_split,
+        tickers=requested_tickers,
         required_buy_probability=required_buy_probability,
         required_sell_probability=required_sell_probability,
-        execution_priority=execution_priority,
-        top_k_per_timestamp=top_k_per_timestamp,
-        ticker_cooldown_minutes=ticker_cooldown_minutes,
         model=model,
-        meta_model=meta_model,
-        meta_model_path=meta_model_path,
-        meta_history_pred_df=meta_history_pred_df,
-        meta_shrinkage_k=meta_shrinkage_k,
-        meta_train_split=meta_train_split,
-        meta_min_score_buy=meta_min_score_buy,
-        meta_min_score_short=meta_min_score_short,
     )
+    meta_train_df = build_meta_training_frame(
+        pred_df,
+        shrinkage_k=meta_shrinkage_k,
+    )
+    if meta_train_df.empty:
+        raise SystemExit(
+            "No valid directional rows were available to train the meta model. "
+            "Check that the base model produces BUY/SHORT predictions with probabilities."
+        )
+
+    meta_model = RidgeMetaModel(alpha=meta_alpha)
+    metrics = meta_model.fit(meta_train_df)
+
+    meta_dir = checkpoints_root / exp_dir.name / active_model_name / "meta"
+    meta_model.save(meta_dir)
+    (meta_dir / "training_metrics.json").write_text(
+        json.dumps(
+            {
+                "base_model_name": active_model_name,
+                "base_member_models": model_names,
+                "train_split": meta_train_split,
+                "n_rows_total": int(len(pred_df)),
+                "n_rows_trainable": int(len(meta_train_df)),
+                "feature_columns": META_FEATURE_COLUMNS,
+                "metrics": metrics,
+            },
+            indent=2,
+        )
+    )
+
+    print(f"Meta checkpoint  : {meta_dir}")
+    for key, value in metrics.items():
+        if isinstance(value, float):
+            print(f"  {key}: {value:.6f}")
+        else:
+            print(f"  {key}: {value}")
 
 
 if __name__ == "__main__":

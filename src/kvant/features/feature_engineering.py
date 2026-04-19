@@ -222,6 +222,45 @@ class StandardizedFeatures:
         self.std_ = sd.astype(np.float32)
         return self
 
+    def fit_from_ticker_dfs(
+        self,
+        ticker_dfs: dict[str, pd.DataFrame],
+    ) -> "StandardizedFeatures":
+        """
+        Fit global standardization stats from per-ticker feature matrices.
+
+        Rolling features such as EMA, MACD, and RSI must be computed on each
+        ticker independently. After that, the resulting feature rows can be
+        pooled to learn one global mean/std for the model input scale.
+        """
+        X_parts: list[np.ndarray] = []
+        names_ref: Optional[list[str]] = None
+
+        for df in ticker_dfs.values():
+            if df is None or len(df) == 0:
+                continue
+
+            X, names = self.base.transform(df)
+            if names_ref is None:
+                names_ref = names
+            elif names != names_ref:
+                raise RuntimeError("Feature names changed between tickers.")
+
+            X_parts.append(X)
+
+        if not X_parts or names_ref is None:
+            raise RuntimeError("No feature rows available for ticker-aware standardization.")
+
+        X_all = np.concatenate(X_parts, axis=0)
+        mu = np.nanmean(X_all, axis=0)
+        sd = np.nanstd(X_all, axis=0)
+        sd = np.where(sd < self.eps, 1.0, sd)
+
+        self.feature_names_ = names_ref
+        self.mean_ = mu.astype(np.float32)
+        self.std_ = sd.astype(np.float32)
+        return self
+
     def get_meta(self) -> dict:
         return {
             "name": self.name,

@@ -167,13 +167,16 @@ def prepare_experiment(
     # 2. Build sampled TRAIN corpus, then fit FE + labeler on it
     # ------------------------------------------------------------------
     sampled_train_parts: List[pd.DataFrame] = []
+    sampled_train_by_ticker: Dict[str, pd.DataFrame] = {}
     for t in tickers_train:
         df = ticker_dfs_train.get(t)
         if df is None or len(df) == 0:
             continue
         ds = sampler.transform(ensure_utc_sorted_index(df), ticker=t)
         if ds is not None and len(ds) > 0:
-            sampled_train_parts.append(ensure_utc_sorted_index(ds))
+            ds_sorted = ensure_utc_sorted_index(ds)
+            sampled_train_parts.append(ds_sorted)
+            sampled_train_by_ticker[t] = ds_sorted
 
     if not sampled_train_parts:
         raise RuntimeError(
@@ -181,8 +184,18 @@ def prepare_experiment(
             "Check that ticker_dfs_train is non-empty and the sampler is not too sparse."
         )
     df_fit = pd.concat(sampled_train_parts, axis=0).sort_index()
-    fe.fit(df_fit)
-    labeler.fit(df_fit)
+
+    fe_fit_from_ticker_dfs = getattr(fe, "fit_from_ticker_dfs", None)
+    if callable(fe_fit_from_ticker_dfs):
+        fe_fit_from_ticker_dfs(sampled_train_by_ticker)
+    else:
+        fe.fit(df_fit)
+
+    labeler_fit_from_ticker_dfs = getattr(labeler, "fit_from_ticker_dfs", None)
+    if callable(labeler_fit_from_ticker_dfs):
+        labeler_fit_from_ticker_dfs(sampled_train_by_ticker)
+    else:
+        labeler.fit(df_fit)
 
     # ------------------------------------------------------------------
     # 3. Process each ticker on its full history (train + val + test)

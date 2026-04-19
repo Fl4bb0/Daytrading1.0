@@ -18,6 +18,7 @@ run_meta.csv            — experiment metadata (model, split, timestamp, counts
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Type
@@ -39,7 +40,124 @@ from kvant.training.metrics import (
 # Label names (must match label convention: 0=SHORT, 1=HOLD, 2=BUY)
 _LABEL_NAMES = ["SHORT", "HOLD", "BUY"]
 _LABEL_IDS   = [0, 1, 2]
-_EXECUTION_PRIORITIES = {"first_seen", "model_confidence"}
+_EXECUTION_PRIORITIES = {"first_seen", "model_confidence", "meta_score"}
+
+
+@dataclass
+class PredictionArtifacts:
+    pred_df: pd.DataFrame
+    y: np.ndarray
+    y_pred: np.ndarray
+    y_pred_raw: np.ndarray
+    tids: np.ndarray
+    metas: List[Optional[dict]]
+    ticker_map: dict[int, str]
+    n_samples: int
+    n_tickers: int
+
+
+def _build_prediction_artifacts(
+    exp_dir: Path,
+    model_path: Path,
+    model_cls: Type[KvantModel],
+    *,
+    split: str,
+    tickers: Optional[List[str]],
+    required_buy_probability: float,
+    required_sell_probability: float,
+    model: Optional[KvantModel],
+) -> PredictionArtifacts:
+    """Load a split, run base-model inference, and return aligned prediction rows."""
+    X, y, timestamps, tids, metas, ticker_map = load_split(exp_dir, split, tickers)
+    n_samples = int(len(y))
+    n_tickers = int(len(ticker_map))
+
+    model = model if model is not None else model_cls.load(model_path)
+    y_pred_raw = model.predict(X)
+
+    proba: Optional[np.ndarray] = None
+    try:
+        proba = model.predict_proba(X)
+    except NotImplementedError:
+        pass
+
+    y_pred = _apply_action_probability_thresholds(
+        y_pred=y_pred_raw,
+        proba=proba,
+        required_sell_probability=required_sell_probability,
+        required_buy_probability=required_buy_probability,
+    )
+
+    ticker_labels = np.array([ticker_map[int(tid)] for tid in tids])
+    try:
+        ts_pd = pd.to_datetime(timestamps)
+    except Exception:
+        ts_pd = pd.RangeIndex(n_samples)
+
+    pred_df = pd.DataFrame(
+        {
+            "timestamp": ts_pd,
+            "ticker": ticker_labels,
+            "y_true": y,
+            "y_pred_raw": y_pred_raw,
+            "y_pred": y_pred,
+            "y_true_name": [_LABEL_NAMES[int(v)] if int(v) in _LABEL_IDS else str(v) for v in y],
+            "y_pred_raw_name": [_LABEL_NAMES[int(v)] if int(v) in _LABEL_IDS else str(v) for v in y_pred_raw],
+            "y_pred_name": [_LABEL_NAMES[int(v)] if int(v) in _LABEL_IDS else str(v) for v in y_pred],
+        }
+    )
+    if proba is not None and proba.shape[1] == 3:
+        pred_df["prob_SHORT"] = proba[:, 0]
+        pred_df["prob_HOLD"] = proba[:, 1]
+        pred_df["prob_BUY"] = proba[:, 2]
+
+    pred_df["pnl_fraction"] = [
+        m.get("pnl_fraction") if isinstance(m, dict) else None
+        for m in metas
+    ]
+    pred_df["bar_close_time"] = pd.to_datetime(
+        [
+            m.get("bar_close_time") if isinstance(m, dict) else None
+            for m in metas
+        ],
+        errors="coerce",
+    )
+
+    return PredictionArtifacts(
+        pred_df=pred_df,
+        y=y,
+        y_pred=y_pred,
+        y_pred_raw=y_pred_raw,
+        tids=tids,
+        metas=metas,
+        ticker_map=ticker_map,
+        n_samples=n_samples,
+        n_tickers=n_tickers,
+    )
+
+
+def build_prediction_frame(
+    exp_dir: Path,
+    model_path: Path,
+    model_cls: Type[KvantModel],
+    *,
+    split: str = "test",
+    tickers: Optional[List[str]] = None,
+    required_buy_probability: float = 0.0,
+    required_sell_probability: float = 0.0,
+    model: Optional[KvantModel] = None,
+) -> pd.DataFrame:
+    """Public helper for generating aligned prediction rows without full evaluation."""
+    return _build_prediction_artifacts(
+        exp_dir=exp_dir,
+        model_path=model_path,
+        model_cls=model_cls,
+        split=split,
+        tickers=tickers,
+        required_buy_probability=required_buy_probability,
+        required_sell_probability=required_sell_probability,
+        model=model,
+    ).pred_df
 
 
 def evaluate_experiment(
@@ -57,6 +175,13 @@ def evaluate_experiment(
     top_k_per_timestamp: Optional[int] = None,
     ticker_cooldown_minutes: int = 0,
     model: Optional[KvantModel] = None,
+    meta_model: Optional[object] = None,
+    meta_model_path: Optional[Path] = None,
+    meta_history_pred_df: Optional[pd.DataFrame] = None,
+    meta_shrinkage_k: float = 10.0,
+    meta_train_split: Optional[str] = None,
+    meta_min_score_buy: Optional[float] = None,
+    meta_min_score_short: Optional[float] = None,
 ) -> Path:
     """
     Load artifacts, run inference, compute statistics, and save all results as CSV.
@@ -77,7 +202,8 @@ def evaluate_experiment(
     execution_priority : How same-timestamp candidate trades compete for free
                  capital pools. ``"first_seen"`` preserves existing order;
                  ``"model_confidence"`` prioritizes higher predicted-side
-                 class probability first.
+                 class probability first; ``"meta_score"`` prioritizes
+                 the optional meta regressor's output first.
     top_k_per_timestamp : Optional cap on how many candidate trades can be
                  considered per timestamp after ranking. ``None`` disables
                  the cap.
@@ -104,71 +230,59 @@ def evaluate_experiment(
     if ticker_cooldown_minutes < 0:
         raise ValueError("ticker_cooldown_minutes must be >= 0")
 
-    # ------------------------------------------------------------------
-    # 1. Load artifacts from disk
-    # ------------------------------------------------------------------
-    X, y, timestamps, tids, metas, ticker_map = load_split(exp_dir, split, tickers)
-    n_samples  = int(len(y))
-    n_tickers  = int(len(ticker_map))
-
-    # ------------------------------------------------------------------
-    # 2. Load model and run inference
-    # ------------------------------------------------------------------
-    model    = model if model is not None else model_cls.load(model_path)
-    y_pred_raw = model.predict(X)
-
-    proba: Optional[np.ndarray] = None
-    try:
-        proba = model.predict_proba(X)
-    except NotImplementedError:
-        pass
-
-    y_pred = _apply_action_probability_thresholds(
-        y_pred=y_pred_raw,
-        proba=proba,
-        required_sell_probability=required_sell_probability,
+    model = model if model is not None else model_cls.load(model_path)
+    artifacts = _build_prediction_artifacts(
+        exp_dir=exp_dir,
+        model_path=model_path,
+        model_cls=model_cls,
+        split=split,
+        tickers=tickers,
         required_buy_probability=required_buy_probability,
+        required_sell_probability=required_sell_probability,
+        model=model,
     )
+    pred_df = artifacts.pred_df
+    y = artifacts.y
+    y_pred = artifacts.y_pred
+    y_pred_raw = artifacts.y_pred_raw
+    tids = artifacts.tids
+    metas = artifacts.metas
+    ticker_map = artifacts.ticker_map
+    n_samples = artifacts.n_samples
+    n_tickers = artifacts.n_tickers
     n_thresholded_to_hold = int(np.sum((y_pred_raw != y_pred) & np.isin(y_pred_raw, [0, 2])))
+    n_meta_thresholded_to_hold = 0
 
-    # Ticker symbol per sample
-    ticker_labels = np.array([ticker_map[int(tid)] for tid in tids])
+    if meta_model is not None:
+        from kvant.meta import add_meta_features
 
-    # Readable timestamps
-    try:
-        ts_pd = pd.to_datetime(timestamps)
-    except Exception:
-        ts_pd = pd.RangeIndex(n_samples)
+        pred_df = add_meta_features(
+            pred_df,
+            history_df=meta_history_pred_df,
+            fee=fee,
+            shrinkage_k=meta_shrinkage_k,
+        )
+        pred_df["meta_score"] = meta_model.predict(pred_df)
+        pred_df["y_pred_pre_meta"] = pred_df["y_pred"].astype(int)
+        pred_df["y_pred_pre_meta_name"] = pred_df["y_pred_name"]
+        y_pred = _apply_meta_score_thresholds(
+            y_pred=pred_df["y_pred"].to_numpy(dtype=np.int64),
+            meta_score=pred_df["meta_score"].to_numpy(dtype=float),
+            min_score_short=meta_min_score_short,
+            min_score_buy=meta_min_score_buy,
+        )
+        n_meta_thresholded_to_hold = int(
+            np.sum(
+                (pred_df["y_pred_pre_meta"].to_numpy(dtype=np.int64) != y_pred)
+                & np.isin(pred_df["y_pred_pre_meta"].to_numpy(dtype=np.int64), [0, 2])
+            )
+        )
+        pred_df["y_pred"] = y_pred
+        pred_df["y_pred_name"] = [
+            _LABEL_NAMES[int(v)] if int(v) in _LABEL_IDS else str(v)
+            for v in y_pred
+        ]
 
-    # ------------------------------------------------------------------
-    # 3. predictions.csv
-    # ------------------------------------------------------------------
-    pred_df = pd.DataFrame({
-        "timestamp": ts_pd,
-        "ticker":    ticker_labels,
-        "y_true":    y,
-        "y_pred_raw": y_pred_raw,
-        "y_pred":    y_pred,
-        "y_true_name": [_LABEL_NAMES[int(v)] if int(v) in _LABEL_IDS else str(v) for v in y],
-        "y_pred_raw_name": [_LABEL_NAMES[int(v)] if int(v) in _LABEL_IDS else str(v) for v in y_pred_raw],
-        "y_pred_name": [_LABEL_NAMES[int(v)] if int(v) in _LABEL_IDS else str(v) for v in y_pred],
-    })
-    if proba is not None and proba.shape[1] == 3:
-        pred_df["prob_SHORT"] = proba[:, 0]
-        pred_df["prob_HOLD"]  = proba[:, 1]
-        pred_df["prob_BUY"]   = proba[:, 2]
-
-    # Add pnl_fraction and bar_close_time from metadata for downstream convenience
-    pnl_col = [
-        m.get("pnl_fraction") if isinstance(m, dict) else None
-        for m in metas
-    ]
-    pred_df["pnl_fraction"] = pnl_col
-    close_time_col = [
-        m.get("bar_close_time") if isinstance(m, dict) else None
-        for m in metas
-    ]
-    pred_df["bar_close_time"] = pd.to_datetime(close_time_col, errors="coerce")
     pred_df.to_csv(out_dir / "predictions.csv", index=False)
 
     # ------------------------------------------------------------------
@@ -292,6 +406,13 @@ def evaluate_experiment(
         "top_k_per_timestamp": "" if top_k_per_timestamp is None else int(top_k_per_timestamp),
         "ticker_cooldown_minutes": ticker_cooldown_minutes,
         "n_thresholded_to_hold": n_thresholded_to_hold,
+        "n_meta_thresholded_to_hold": n_meta_thresholded_to_hold,
+        "meta_enabled": bool(meta_model is not None),
+        "meta_model_path": "" if meta_model_path is None else str(meta_model_path),
+        "meta_train_split": "" if meta_train_split is None else str(meta_train_split),
+        "meta_shrinkage_k": "" if meta_model is None else float(meta_shrinkage_k),
+        "meta_min_score_buy": "" if meta_min_score_buy is None else float(meta_min_score_buy),
+        "meta_min_score_short": "" if meta_min_score_short is None else float(meta_min_score_short),
     }
     pd.DataFrame([run_meta]).to_csv(out_dir / "run_meta.csv", index=False)
 
@@ -429,8 +550,8 @@ def _collect_candidate_trades(
     candidates["_candidate_order"] = np.arange(len(candidates), dtype=np.int64)
     candidates = candidates.sort_values(["timestamp", "_candidate_order"], kind="mergesort")
 
-    if execution_priority == "model_confidence":
-        score = _execution_priority_score(candidates)
+    if execution_priority != "first_seen":
+        score = _execution_priority_score(candidates, execution_priority=execution_priority)
         if score.notna().all():
             candidates["_execution_score"] = score
             candidates = candidates.sort_values(
@@ -448,8 +569,17 @@ def _collect_candidate_trades(
     return [row for _, row in candidates.iterrows()]
 
 
-def _execution_priority_score(candidate_df: pd.DataFrame) -> pd.Series:
-    """Predicted-side class probability used to prioritize simultaneous trades."""
+def _execution_priority_score(
+    candidate_df: pd.DataFrame,
+    *,
+    execution_priority: str,
+) -> pd.Series:
+    """Return the score used to prioritize simultaneous trade candidates."""
+    if execution_priority == "meta_score":
+        if "meta_score" not in candidate_df.columns:
+            return pd.Series(np.nan, index=candidate_df.index, dtype=float)
+        return pd.to_numeric(candidate_df["meta_score"], errors="coerce")
+
     score = pd.Series(np.nan, index=candidate_df.index, dtype=float)
 
     if "prob_SHORT" in candidate_df.columns:
@@ -518,6 +648,30 @@ def _apply_action_probability_thresholds(
     if buy_thr > 0:
         buy_mask = out == 2
         out[buy_mask & (proba[:, 2] < buy_thr)] = 1
+
+    return out
+
+
+def _apply_meta_score_thresholds(
+    y_pred: np.ndarray,
+    meta_score: np.ndarray,
+    *,
+    min_score_short: Optional[float],
+    min_score_buy: Optional[float],
+) -> np.ndarray:
+    """Demote directional predictions below side-specific meta-score thresholds to HOLD."""
+    out = np.asarray(y_pred, dtype=np.int64).copy()
+    score = np.asarray(meta_score, dtype=float)
+    if score.ndim != 1 or score.shape[0] != out.shape[0]:
+        raise ValueError("meta_score must be a 1D array aligned with y_pred")
+
+    if min_score_short is not None:
+        short_mask = out == 0
+        out[short_mask & (score < float(min_score_short))] = 1
+
+    if min_score_buy is not None:
+        buy_mask = out == 2
+        out[buy_mask & (score < float(min_score_buy))] = 1
 
     return out
 

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from kvant.evaluation.runner import _save_equity_curve
+from kvant.evaluation.runner import _apply_meta_score_thresholds, _save_equity_curve
 
 
 class ExecutionPriorityTests(unittest.TestCase):
@@ -87,6 +87,44 @@ class ExecutionPriorityTests(unittest.TestCase):
         self.assertFalse(bool(eq_df.loc[0, "skipped"]))
         self.assertTrue(bool(eq_df.loc[1, "skipped"]))
         self.assertAlmostEqual(float(eq_df.loc[1, "cumulative_portfolio_pnl_pct"]), 1.0)
+
+    def test_meta_score_prioritizes_same_timestamp_trade(self) -> None:
+        pred_df = pd.DataFrame(
+            {
+                "timestamp": pd.to_datetime(
+                    [
+                        "2025-01-02 14:30:00",
+                        "2025-01-02 14:30:00",
+                    ]
+                ),
+                "ticker": ["LOW", "HIGH"],
+                "y_pred": [2, 2],
+                "pnl_fraction": [0.01, 0.02],
+                "bar_close_time": pd.to_datetime(
+                    [
+                        "2025-01-02 14:50:00",
+                        "2025-01-02 14:50:00",
+                    ]
+                ),
+                "meta_score": [0.10, 0.25],
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_path = Path(tmpdir) / "equity_curve.csv"
+            _save_equity_curve(
+                pred_df,
+                out_path,
+                fee=0.0,
+                n_pools=1,
+                execution_priority="meta_score",
+            )
+            eq_df = pd.read_csv(out_path)
+
+        self.assertEqual(eq_df.loc[0, "ticker"], "HIGH")
+        self.assertFalse(bool(eq_df.loc[0, "skipped"]))
+        self.assertTrue(bool(eq_df.loc[1, "skipped"]))
+        self.assertAlmostEqual(float(eq_df.loc[1, "cumulative_portfolio_pnl_pct"]), 2.0)
 
     def test_top_k_per_timestamp_limits_candidates(self) -> None:
         pred_df = pd.DataFrame(
@@ -171,6 +209,19 @@ class ExecutionPriorityTests(unittest.TestCase):
             list(pd.to_datetime(eq_df["timestamp"]).dt.strftime("%H:%M:%S")),
             ["14:30:00", "15:35:00"],
         )
+
+    def test_meta_score_thresholds_demote_short_and_buy_independently(self) -> None:
+        y_pred = pd.Series([0, 0, 2, 2], dtype="int64").to_numpy()
+        meta_score = pd.Series([0.03, 0.01, 0.015, 0.005], dtype="float64").to_numpy()
+
+        out = _apply_meta_score_thresholds(
+            y_pred,
+            meta_score,
+            min_score_short=0.02,
+            min_score_buy=0.01,
+        )
+
+        self.assertEqual(list(out), [0, 1, 2, 1])
 
 
 if __name__ == "__main__":

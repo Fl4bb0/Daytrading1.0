@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import tomllib
 from copy import deepcopy
@@ -55,6 +56,14 @@ DEFAULT_PIPELINE_CONFIG: dict[str, Any] = {
         "execution_priority": "model_confidence",
         "top_k_per_timestamp": None,
         "ticker_cooldown_minutes": 0,
+    },
+    "meta": {
+        "enabled": False,
+        "train_split": "val",
+        "alpha": 1.0,
+        "shrinkage_k": 10.0,
+        "min_score_buy": None,
+        "min_score_short": None,
     },
     "daily": {
         "roll_forward": True,
@@ -168,10 +177,10 @@ def _validate_config(cfg: dict[str, Any], path: Path) -> None:
             raise SystemExit(f"predict.{key} must be between 0 and 1 in {path}")
 
     execution_priority = str(cfg["predict"].get("execution_priority", "model_confidence"))
-    if execution_priority not in {"first_seen", "model_confidence"}:
+    if execution_priority not in {"first_seen", "model_confidence", "meta_score"}:
         raise SystemExit(
             "predict.execution_priority must be one of "
-            "first_seen|model_confidence in "
+            "first_seen|model_confidence|meta_score in "
             f"{path}"
         )
 
@@ -183,6 +192,32 @@ def _validate_config(cfg: dict[str, Any], path: Path) -> None:
     ticker_cooldown_minutes = int(cfg["predict"].get("ticker_cooldown_minutes", 0))
     if ticker_cooldown_minutes < 0:
         raise SystemExit(f"predict.ticker_cooldown_minutes must be >= 0 in {path}")
+
+    meta_train_split = str(cfg.get("meta", {}).get("train_split", "val"))
+    if meta_train_split not in {"train", "val"}:
+        raise SystemExit(f"meta.train_split must be one of train|val in {path}")
+
+    meta_alpha = float(cfg.get("meta", {}).get("alpha", 1.0))
+    if meta_alpha <= 0.0:
+        raise SystemExit(f"meta.alpha must be > 0 in {path}")
+
+    meta_shrinkage_k = float(cfg.get("meta", {}).get("shrinkage_k", 10.0))
+    if meta_shrinkage_k < 0.0:
+        raise SystemExit(f"meta.shrinkage_k must be >= 0 in {path}")
+
+    for key in ("min_score_buy", "min_score_short"):
+        value = cfg.get("meta", {}).get(key)
+        if value in (None, ""):
+            continue
+        numeric = float(value)
+        if not math.isfinite(numeric):
+            raise SystemExit(f"meta.{key} must be a finite number in {path}")
+
+    if execution_priority == "meta_score" and not bool(cfg.get("meta", {}).get("enabled", False)):
+        raise SystemExit(
+            "predict.execution_priority=meta_score requires meta.enabled=true "
+            f"in {path}"
+        )
 
 
 def list_from_config(value: Any) -> list[str] | None:

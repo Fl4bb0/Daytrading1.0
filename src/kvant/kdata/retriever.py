@@ -412,18 +412,57 @@ class AlphaVantageRetriever(DataRetriever):
 # ---------------------------------------------------------------------------
 
 class HybridRetriever(DataRetriever):
-    """Route recent/live data to Yahoo and deeper history to Alpha Vantage."""
+    """
+    Route data retrieval to different backends based on date/time.
+
+    Can use various combinations:
+      - Yahoo (recent/live) + AlphaVantage (history)
+      - Yahoo (incremental) + HuggingFace (historical < boundary_date)
+      - Yahoo only
+      - etc.
+    """
 
     def __init__(
         self,
         *,
         yahoo: Optional[YahooRetriever] = None,
         alpha: Optional[AlphaVantageRetriever] = None,
+        huggingface: Optional[object] = None,  # HuggingFaceRetriever to avoid circular import
         recent_days: int = 7,
+        hf_end_exclusive: Optional[Union[str, datetime]] = None,
     ) -> None:
+        """
+        Initialize HybridRetriever.
+
+        Parameters
+        ----------
+        yahoo : YahooRetriever, optional
+            Yahoo Finance backend for recent/live data.
+            Defaults to YahooRetriever(interval="1m", period="7d").
+        alpha : AlphaVantageRetriever, optional
+            Alpha Vantage backend for deeper history.
+        huggingface : HuggingFaceRetriever, optional
+            HuggingFace backend for historical data.
+            If provided, used for dates < hf_end_exclusive.
+        recent_days : int
+            Used when routing between Yahoo/AlphaVantage.
+            If hf_end_exclusive is set, this is ignored.
+        hf_end_exclusive : str or datetime, optional
+            Boundary date: use HF for dates < this, Yahoo for >= this.
+            If set, overrides recent_days-based routing.
+            Format: 'YYYY-MM-DD' or datetime object.
+        """
         self.yahoo = yahoo or YahooRetriever(interval="1m", period="7d")
         self.alpha = alpha or AlphaVantageRetriever(interval="1m")
+        self.huggingface = huggingface
         self.recent_days = recent_days
+        self.hf_end_exclusive = None
+
+        if hf_end_exclusive is not None:
+            if isinstance(hf_end_exclusive, str):
+                self.hf_end_exclusive = pd.Timestamp(hf_end_exclusive, tz="UTC")
+            else:
+                self.hf_end_exclusive = pd.Timestamp(hf_end_exclusive, tz="UTC")
 
     def get_history(
         self,
@@ -435,6 +474,23 @@ class HybridRetriever(DataRetriever):
         interval: str = "1d",
         **kwargs,
     ) -> pd.DataFrame:
+        """
+        Fetch data, routing to appropriate backend(s).
+
+        If hf_end_exclusive is set and HuggingFace is available:
+          - Dates < hf_end_exclusive → HuggingFace
+          - Dates >= hf_end_exclusive → Yahoo
+          - Blends both if range spans boundary
+
+        Otherwise uses recent_days to route Yahoo vs AlphaVantage.
+        """
+        # If HF boundary is set, use date-based routing
+        if self.hf_end_exclusive is not None and self.huggingface is not None:
+            return self._get_history_with_hf(
+                symbol, start=start, end=end, period=period, interval=interval, **kwargs
+            )
+
+        # Otherwise use legacy time-based routing (Yahoo vs AlphaVantage)
         use_yahoo = self._prefer_yahoo(start=start, end=end, period=period, interval=interval)
         backend: DataRetriever = self.yahoo if use_yahoo else self.alpha
         return backend.get_history(
@@ -445,6 +501,57 @@ class HybridRetriever(DataRetriever):
             interval=interval,
             **kwargs,
         )
+
+    def _get_history_with_hf(
+        self,
+        symbol: str,
+        *,
+        start: Optional[Union[str, datetime]] = None,
+        end: Optional[Union[str, datetime]] = None,
+        period: Optional[str] = None,
+        interval: str = "1d",
+        **kwargs,
+    ) -> pd.DataFrame:
+        """Fetch data blending HuggingFace (historical) and Yahoo (recent)."""
+        start_dt = self._resolve_timestamp(start) if start else pd.Timestamp("2020-01-01", tz="UTC")
+        end_dt = self._resolve_timestamp(end) if end else pd.Timestamp.now(tz="UTC")
+
+        dfs = []
+
+        # HF portion: [start, min(end, hf_end))
+        hf_end_dt = min(self.hf_end_exclusive, end_dt)
+        if start_dt < hf_end_dt:
+            try:
+                df_hf = self.huggingface.get_history(
+                    symbol, start=start_dt, end=hf_end_dt, interval=interval, **kwargs
+                )
+                if not df_hf.empty:
+                    dfs.append(df_hf)
+            except Exception as e:
+                import logging
+                logging.debug(f"HF fetch failed for {symbol}: {e}")
+
+        # Yahoo portion: [max(start, hf_end), end]
+        yahoo_start_dt = max(self.hf_end_exclusive, start_dt)
+        if yahoo_start_dt < end_dt:
+            try:
+                df_yahoo = self.yahoo.get_history(
+                    symbol, start=yahoo_start_dt, end=end_dt, interval=interval, **kwargs
+                )
+                if not df_yahoo.empty:
+                    dfs.append(df_yahoo)
+            except Exception as e:
+                import logging
+                logging.debug(f"Yahoo fetch failed for {symbol}: {e}")
+
+        if not dfs:
+            return pd.DataFrame()
+
+        # Combine, deduplicate (keep first = HF if overlap), sort
+        result = pd.concat(dfs)
+        result = result[~result.index.duplicated(keep="first")]
+        result = result.sort_index()
+        return result
 
     def get_ticker_data(
         self,
@@ -472,6 +579,13 @@ class HybridRetriever(DataRetriever):
 
     def get_current_price(self, symbol: str, **kwargs) -> dict:
         return self.yahoo.get_current_price(symbol, **kwargs)
+
+    @staticmethod
+    def _resolve_timestamp(ts: Union[str, datetime]) -> pd.Timestamp:
+        """Convert to UTC pandas Timestamp."""
+        if isinstance(ts, datetime):
+            return pd.Timestamp(ts, tz="UTC") if ts.tzinfo is None else pd.Timestamp(ts).tz_convert("UTC")
+        return pd.to_datetime(ts, utc=True)
 
     def _prefer_yahoo(
         self,

@@ -24,6 +24,11 @@ volatility_scaled_barrier = true
 vol_scale_min = 0.5
 vol_scale_max = 2.0
 skip_opening_minutes = 30
+train_start_month = "2025-01"
+train_end_month = "2025-11"
+test_start_month = "2025-12"
+test_end_month = "2026-03"
+
 
 [train]
 experiment_id = "last"
@@ -58,3 +63,23 @@ show = false
 
 [ensemble]
 models = ["resnls", "conv1d", "tsb"]
+
+[data_sources]
+# Boundary between HuggingFace (historical) and Yahoo (incremental)
+hf_end_exclusive = "2026-01-01"
+month_pattern = "{YYYY-MM}"
+local_cache_root = "data/1m"
+enable_hf_backfill = true
+verify_existing_months = true
+backfill_status_file = ".hf_backfill_status.json"
+backfill_time_windows = [
+    { start = "2025-01", end = "2025-01" },
+    { start = "2025-02", end = "2025-02" }
+    #{ start = "2025-10", end = "2025-12" }
+]
+
+[hf_config]
+# HuggingFace dataset details (set dataset_id to use HF source)
+dataset_id = "mito0o852/OHLCV-1m"
+cache_dir = "~/.cache/huggingface"
+

@@ -31,6 +31,7 @@ dependencies = [
     "wandb>=0.25.0",
     "weave>=0.52.30",
     "yfinance>=1.2.0",
+    "datasets>=4.8.4",
 ]
 
 #[tool.uv]

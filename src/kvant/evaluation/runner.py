@@ -180,6 +180,8 @@ def evaluate_experiment(
     meta_history_pred_df: Optional[pd.DataFrame] = None,
     meta_shrinkage_k: float = 10.0,
     meta_train_split: Optional[str] = None,
+    meta_min_score_buy: Optional[float] = None,
+    meta_min_score_short: Optional[float] = None,
 ) -> Path:
     """
     Load artifacts, run inference, compute statistics, and save all results as CSV.
@@ -249,6 +251,7 @@ def evaluate_experiment(
     n_samples = artifacts.n_samples
     n_tickers = artifacts.n_tickers
     n_thresholded_to_hold = int(np.sum((y_pred_raw != y_pred) & np.isin(y_pred_raw, [0, 2])))
+    n_meta_thresholded_to_hold = 0
 
     if meta_model is not None:
         from kvant.meta import add_meta_features
@@ -260,6 +263,25 @@ def evaluate_experiment(
             shrinkage_k=meta_shrinkage_k,
         )
         pred_df["meta_score"] = meta_model.predict(pred_df)
+        pred_df["y_pred_pre_meta"] = pred_df["y_pred"].astype(int)
+        pred_df["y_pred_pre_meta_name"] = pred_df["y_pred_name"]
+        y_pred = _apply_meta_score_thresholds(
+            y_pred=pred_df["y_pred"].to_numpy(dtype=np.int64),
+            meta_score=pred_df["meta_score"].to_numpy(dtype=float),
+            min_score_short=meta_min_score_short,
+            min_score_buy=meta_min_score_buy,
+        )
+        n_meta_thresholded_to_hold = int(
+            np.sum(
+                (pred_df["y_pred_pre_meta"].to_numpy(dtype=np.int64) != y_pred)
+                & np.isin(pred_df["y_pred_pre_meta"].to_numpy(dtype=np.int64), [0, 2])
+            )
+        )
+        pred_df["y_pred"] = y_pred
+        pred_df["y_pred_name"] = [
+            _LABEL_NAMES[int(v)] if int(v) in _LABEL_IDS else str(v)
+            for v in y_pred
+        ]
 
     pred_df.to_csv(out_dir / "predictions.csv", index=False)
 
@@ -384,10 +406,13 @@ def evaluate_experiment(
         "top_k_per_timestamp": "" if top_k_per_timestamp is None else int(top_k_per_timestamp),
         "ticker_cooldown_minutes": ticker_cooldown_minutes,
         "n_thresholded_to_hold": n_thresholded_to_hold,
+        "n_meta_thresholded_to_hold": n_meta_thresholded_to_hold,
         "meta_enabled": bool(meta_model is not None),
         "meta_model_path": "" if meta_model_path is None else str(meta_model_path),
         "meta_train_split": "" if meta_train_split is None else str(meta_train_split),
         "meta_shrinkage_k": "" if meta_model is None else float(meta_shrinkage_k),
+        "meta_min_score_buy": "" if meta_min_score_buy is None else float(meta_min_score_buy),
+        "meta_min_score_short": "" if meta_min_score_short is None else float(meta_min_score_short),
     }
     pd.DataFrame([run_meta]).to_csv(out_dir / "run_meta.csv", index=False)
 
@@ -623,6 +648,30 @@ def _apply_action_probability_thresholds(
     if buy_thr > 0:
         buy_mask = out == 2
         out[buy_mask & (proba[:, 2] < buy_thr)] = 1
+
+    return out
+
+
+def _apply_meta_score_thresholds(
+    y_pred: np.ndarray,
+    meta_score: np.ndarray,
+    *,
+    min_score_short: Optional[float],
+    min_score_buy: Optional[float],
+) -> np.ndarray:
+    """Demote directional predictions below side-specific meta-score thresholds to HOLD."""
+    out = np.asarray(y_pred, dtype=np.int64).copy()
+    score = np.asarray(meta_score, dtype=float)
+    if score.ndim != 1 or score.shape[0] != out.shape[0]:
+        raise ValueError("meta_score must be a 1D array aligned with y_pred")
+
+    if min_score_short is not None:
+        short_mask = out == 0
+        out[short_mask & (score < float(min_score_short))] = 1
+
+    if min_score_buy is not None:
+        buy_mask = out == 2
+        out[buy_mask & (score < float(min_score_buy))] = 1
 
     return out
 

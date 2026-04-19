@@ -50,6 +50,8 @@ enabled = true # turn on the meta layer
 train_split = "val"
 alpha = 1.0 # regularization
 shrinkage_k = 10.0
+min_score_buy = 0.01 # min. meta score threshold for trade to be executed
+min_score_short = 0.02
 
 [daily]
 roll_forward = true

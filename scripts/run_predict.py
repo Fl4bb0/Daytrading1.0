@@ -56,6 +56,10 @@ def main() -> None:
     meta_enabled = bool(meta_cfg.get("enabled", False))
     meta_train_split = str(meta_cfg.get("train_split", "val"))
     meta_shrinkage_k = float(meta_cfg.get("shrinkage_k", 10.0))
+    meta_min_score_buy_raw = meta_cfg.get("min_score_buy")
+    meta_min_score_short_raw = meta_cfg.get("min_score_short")
+    meta_min_score_buy = None if meta_min_score_buy_raw in (None, "") else float(meta_min_score_buy_raw)
+    meta_min_score_short = None if meta_min_score_short_raw in (None, "") else float(meta_min_score_short_raw)
     requested_tickers = list_from_config(predict_cfg.get("tickers")) or None
 
     model_names = normalize_model_names(ensemble_cfg.get("models"))
@@ -159,6 +163,8 @@ def main() -> None:
         meta_history_pred_df=meta_history_pred_df,
         meta_shrinkage_k=meta_shrinkage_k,
         meta_train_split=meta_train_split,
+        meta_min_score_buy=meta_min_score_buy,
+        meta_min_score_short=meta_min_score_short,
     )
 
 

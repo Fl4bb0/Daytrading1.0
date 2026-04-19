@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from kvant.evaluation.runner import _save_equity_curve
+from kvant.evaluation.runner import _apply_meta_score_thresholds, _save_equity_curve
 
 
 class ExecutionPriorityTests(unittest.TestCase):
@@ -209,6 +209,19 @@ class ExecutionPriorityTests(unittest.TestCase):
             list(pd.to_datetime(eq_df["timestamp"]).dt.strftime("%H:%M:%S")),
             ["14:30:00", "15:35:00"],
         )
+
+    def test_meta_score_thresholds_demote_short_and_buy_independently(self) -> None:
+        y_pred = pd.Series([0, 0, 2, 2], dtype="int64").to_numpy()
+        meta_score = pd.Series([0.03, 0.01, 0.015, 0.005], dtype="float64").to_numpy()
+
+        out = _apply_meta_score_thresholds(
+            y_pred,
+            meta_score,
+            min_score_short=0.02,
+            min_score_buy=0.01,
+        )
+
+        self.assertEqual(list(out), [0, 1, 2, 1])
 
 
 if __name__ == "__main__":

@@ -195,6 +195,22 @@ class PipelineConfigTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 load_pipeline_config(cfg_path)
 
+    def test_validation_accepts_meta_side_thresholds(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_path = Path(tmpdir) / "pipeline.toml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "[meta]",
+                        "min_score_buy = 0.01",
+                        "min_score_short = 0.02",
+                    ]
+                )
+            )
+            cfg, _ = load_pipeline_config(cfg_path)
+            self.assertEqual(float(cfg["meta"]["min_score_buy"]), 0.01)
+            self.assertEqual(float(cfg["meta"]["min_score_short"]), 0.02)
+
     def test_validation_rejects_invalid_top_k_per_timestamp(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg_path = Path(tmpdir) / "pipeline.toml"

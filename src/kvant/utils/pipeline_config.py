@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import tomllib
 from copy import deepcopy
@@ -61,6 +62,8 @@ DEFAULT_PIPELINE_CONFIG: dict[str, Any] = {
         "train_split": "val",
         "alpha": 1.0,
         "shrinkage_k": 10.0,
+        "min_score_buy": None,
+        "min_score_short": None,
     },
     "daily": {
         "roll_forward": True,
@@ -201,6 +204,14 @@ def _validate_config(cfg: dict[str, Any], path: Path) -> None:
     meta_shrinkage_k = float(cfg.get("meta", {}).get("shrinkage_k", 10.0))
     if meta_shrinkage_k < 0.0:
         raise SystemExit(f"meta.shrinkage_k must be >= 0 in {path}")
+
+    for key in ("min_score_buy", "min_score_short"):
+        value = cfg.get("meta", {}).get(key)
+        if value in (None, ""):
+            continue
+        numeric = float(value)
+        if not math.isfinite(numeric):
+            raise SystemExit(f"meta.{key} must be a finite number in {path}")
 
     if execution_priority == "meta_score" and not bool(cfg.get("meta", {}).get("enabled", False)):
         raise SystemExit(

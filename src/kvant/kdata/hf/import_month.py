@@ -116,11 +116,20 @@ def import_month(
             }
 
     # Import each symbol
+    month_frames = None
+    if isinstance(retriever, HuggingFaceRetriever):
+        try:
+            month_frames = retriever.get_month_shards(symbols, year_month)
+        except Exception as e:
+            logger.info(
+                f"Batch month fetch unavailable for {year_month}; falling back to per-symbol loads ({e})"
+            )
+
     results = {}
     for sym in symbols:
         try:
             logger.info(f"  Fetching {sym}/{year_month}...")
-            df = retriever.get_month_shard(sym, year_month)
+            df = month_frames[sym] if month_frames is not None else retriever.get_month_shard(sym, year_month)
 
             if df.empty:
                 results[sym] = {"status": "no_data"}

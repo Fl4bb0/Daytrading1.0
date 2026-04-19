@@ -48,8 +48,10 @@ class HuggingFaceRetriever(DataRetriever):
         cache_dir: Optional[str] = None,
     ) -> None:
         self.dataset_id = dataset_id
-        self.cache_dir = cache_dir or str(Path.home() / ".cache" / "huggingface")
+        resolved_cache_dir = Path(cache_dir).expanduser() if cache_dir else Path.home() / ".cache" / "huggingface"
+        self.cache_dir = str(resolved_cache_dir)
         self._default_train_df_cache: Optional[pd.DataFrame] = None
+        self._month_frame_cache: Dict[str, pd.DataFrame] = {}
         if not dataset_id:
             logger.warning("HuggingFaceRetriever initialized with empty dataset_id; will raise on use")
 
@@ -70,23 +72,138 @@ class HuggingFaceRetriever(DataRetriever):
         Fetch one month of 1m data for symbol from HuggingFace.
 
         Supports two dataset layouts:
+          0) month parquet shards in repo files (e.g. data/ohlcv_2025-03.parquet)
           1) split-specific config per symbol-month (e.g. name="AAPL-2025-03")
           2) single default config containing all rows, then filtered by symbol+month
         """
         self._check_enabled()
 
+        # Validate month format early
+        try:
+            month_start, month_end = self._month_bounds(year_month)
+        except Exception:
+            logger.warning(f"Invalid year_month={year_month!r}, expected YYYY-MM")
+            return pd.DataFrame(columns=_COLUMNS)
+
+        try:
+            return self._get_month_shard_from_month_file(symbol, year_month, month_start, month_end)
+        except Exception as e:
+            logger.info(
+                f"Month parquet shard for {year_month!r} unavailable, falling back to config-based loading ({e})"
+            )
+
+        return self._get_month_shard_via_dataset_configs(symbol, year_month, month_start, month_end)
+
+    def get_month_shards(
+        self,
+        symbols: List[str],
+        year_month: str,
+    ) -> Dict[str, pd.DataFrame]:
+        """
+        Fetch one month of data for multiple symbols.
+
+        Uses a month parquet shard when available so import_month can scan a
+        single monthly file once instead of repeating remote dataset resolution
+        per symbol.
+        """
+        self._check_enabled()
+
+        month_start, month_end = self._month_bounds(year_month)
+        original_by_upper = {str(sym).upper(): str(sym) for sym in symbols}
+        requested = list(original_by_upper.keys())
+        result = {str(sym): pd.DataFrame(columns=_COLUMNS) for sym in symbols}
+
+        try:
+            month_df = self._load_month_frame(year_month)
+            if month_df.empty:
+                return result
+
+            symbol_col = self._find_symbol_column(month_df)
+            if symbol_col is None:
+                raise ValueError(f"Could not find symbol/ticker column in month shard {year_month}")
+
+            symbol_series = month_df[symbol_col].astype(str).str.upper()
+            df_filtered = month_df[symbol_series.isin(requested)].copy()
+            if df_filtered.empty:
+                return result
+
+            for sym, group in df_filtered.groupby(symbol_series.loc[df_filtered.index]):
+                normalized = self._normalize_schema(group)
+                normalized = normalized[(normalized.index >= month_start) & (normalized.index < month_end)]
+                result[original_by_upper[sym]] = normalized.sort_index()
+
+            return result
+        except Exception as e:
+            logger.info(
+                f"Batch month loading for {year_month!r} unavailable, falling back to per-symbol fetches ({e})"
+            )
+            return {
+                str(sym): self._get_month_shard_via_dataset_configs(str(sym), year_month, month_start, month_end)
+                for sym in symbols
+            }
+
+    def _get_month_shard_from_month_file(
+        self,
+        symbol: str,
+        year_month: str,
+        month_start: pd.Timestamp,
+        month_end: pd.Timestamp,
+    ) -> pd.DataFrame:
+        month_df = self._load_month_frame(year_month)
+        if month_df.empty:
+            return pd.DataFrame(columns=_COLUMNS)
+
+        symbol_col = self._find_symbol_column(month_df)
+        if symbol_col is None:
+            raise ValueError(f"Could not find symbol/ticker column in month shard {year_month}")
+
+        df_filtered = month_df[month_df[symbol_col].astype(str).str.upper() == symbol.upper()]
+        if df_filtered.empty:
+            return pd.DataFrame(columns=_COLUMNS)
+
+        df_filtered = self._normalize_schema(df_filtered)
+        df_filtered = df_filtered[(df_filtered.index >= month_start) & (df_filtered.index < month_end)]
+        return df_filtered.sort_index()
+
+    def _load_month_frame(self, year_month: str) -> pd.DataFrame:
+        if year_month not in self._month_frame_cache:
+            try:
+                from huggingface_hub import hf_hub_download
+            except ImportError as exc:
+                raise ImportError(
+                    "Please install 'huggingface-hub' package: pip install huggingface-hub"
+                ) from exc
+
+            filename = f"data/ohlcv_{year_month}.parquet"
+            logger.info(f"Loading month shard {filename} from {self.dataset_id}...")
+            local_path = hf_hub_download(
+                repo_id=self.dataset_id,
+                repo_type="dataset",
+                filename=filename,
+                cache_dir=self.cache_dir,
+            )
+
+            preferred_columns = ["timestamp", "open", "high", "low", "close", "volume", "ticker"]
+            try:
+                df = pd.read_parquet(local_path, columns=preferred_columns)
+            except Exception:
+                df = pd.read_parquet(local_path)
+
+            self._month_frame_cache[year_month] = df
+
+        return self._month_frame_cache[year_month]
+
+    def _get_month_shard_via_dataset_configs(
+        self,
+        symbol: str,
+        year_month: str,
+        month_start: pd.Timestamp,
+        month_end: pd.Timestamp,
+    ) -> pd.DataFrame:
         try:
             from datasets import load_dataset
         except ImportError as exc:
             raise ImportError("Please install 'datasets' package: pip install datasets") from exc
-
-        # Validate month format early
-        try:
-            month_start = pd.Timestamp(f"{year_month}-01", tz="UTC")
-        except Exception:
-            logger.warning(f"Invalid year_month={year_month!r}, expected YYYY-MM")
-            return pd.DataFrame(columns=_COLUMNS)
-        month_end = month_start + pd.offsets.MonthBegin(1)
 
         # Fast path: try split-specific config first (your old behavior)
         split_name = f"{symbol}-{year_month}"
@@ -155,6 +272,12 @@ class HuggingFaceRetriever(DataRetriever):
         except Exception as e:
             logger.warning(f"Failed to fetch {symbol}/{year_month} from HF: {e}")
             return pd.DataFrame(columns=_COLUMNS)
+
+    @staticmethod
+    def _month_bounds(year_month: str) -> tuple[pd.Timestamp, pd.Timestamp]:
+        month_start = pd.Timestamp(f"{year_month}-01", tz="UTC")
+        month_end = month_start + pd.offsets.MonthBegin(1)
+        return month_start, month_end
 
     def get_history(
         self,

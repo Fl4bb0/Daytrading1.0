@@ -37,6 +37,9 @@ src/kvant/kmarket_info/is_nyse_open.py
 src/kvant/labeling/__init__.py
 src/kvant/labeling/base.py
 src/kvant/labeling/triple_barrier.py
+src/kvant/meta/__init__.py
+src/kvant/meta/features.py
+src/kvant/meta/model.py
 src/kvant/models/__init__.py
 src/kvant/models/base.py
 src/kvant/models/conv1d.py
@@ -68,9 +71,11 @@ tests/test_alpha_vantage_retriever.py
 tests/test_daily_sync.py
 tests/test_ensemble_model.py
 tests/test_evaluation_runner.py
+tests/test_feature_engineering.py
 tests/test_hybrid_retriever.py
 tests/test_import_month.py
 tests/test_kdata_store_target_days.py
+tests/test_meta_features.py
 tests/test_month_store.py
 tests/test_pipeline_config.py
 tests/test_triple_barrier_labeling.py

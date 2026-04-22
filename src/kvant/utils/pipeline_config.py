@@ -17,6 +17,9 @@ DEFAULT_PIPELINE_CONFIG: dict[str, Any] = {
         "checkpoints_root": "checkpoints",
         "sync_state": "sync_state.json",
     },
+    "trading": {
+        "brokerage_fee": 0.0008,
+    },
     "data": {
         "interval": "1m",
         "symbols": [],
@@ -115,6 +118,10 @@ def load_pipeline_config(config_path: str | Path | None = None) -> tuple[dict[st
 
 
 def _validate_config(cfg: dict[str, Any], path: Path) -> None:
+    brokerage_fee = float(cfg.get("trading", {}).get("brokerage_fee", 0.0008))
+    if not math.isfinite(brokerage_fee) or brokerage_fee < 0.0:
+        raise SystemExit(f"trading.brokerage_fee must be a finite number >= 0 in {path}")
+
     for key in ("val_frac", "test_frac"):
         value = float(cfg["prepare"][key])
         if value <= 0 or value >= 1:

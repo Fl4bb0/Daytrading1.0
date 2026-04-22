@@ -37,6 +37,7 @@ def main() -> None:
     predict_cfg = cfg["predict"]
     ensemble_cfg = cfg.get("ensemble", {})
     meta_cfg = cfg.get("meta", {})
+    trading_cfg = cfg.get("trading", {})
 
     exp_id = str(predict_cfg.get("experiment_id", "last"))
     if exp_id == "last":
@@ -61,6 +62,7 @@ def main() -> None:
     meta_min_score_buy = None if meta_min_score_buy_raw in (None, "") else float(meta_min_score_buy_raw)
     meta_min_score_short = None if meta_min_score_short_raw in (None, "") else float(meta_min_score_short_raw)
     requested_tickers = list_from_config(predict_cfg.get("tickers")) or None
+    brokerage_fee = float(trading_cfg.get("brokerage_fee", 0.0008))
 
     model_names = normalize_model_names(ensemble_cfg.get("models"))
     use_ensemble = bool(model_names)
@@ -152,6 +154,7 @@ def main() -> None:
         out_dir    = out_dir,
         split      = str(predict_cfg.get("split", "test")),
         tickers    = requested_tickers,
+        fee=brokerage_fee,
         required_buy_probability=required_buy_probability,
         required_sell_probability=required_sell_probability,
         execution_priority=execution_priority,

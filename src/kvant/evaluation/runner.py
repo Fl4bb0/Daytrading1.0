@@ -27,7 +27,6 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import classification_report, confusion_matrix
 
-from kvant import BROKERAGE_FEE
 from kvant.evaluation.loader import load_split
 from kvant.models.base import KvantModel
 from kvant.training.metrics import (
@@ -167,7 +166,7 @@ def evaluate_experiment(
     out_dir: Path,
     split: str = "test",
     tickers: Optional[List[str]] = None,
-    fee: float = BROKERAGE_FEE,
+    fee: float = 0.0,
     n_pools: int = 10,
     required_buy_probability: float = 0.0,
     required_sell_probability: float = 0.0,
@@ -430,7 +429,7 @@ def evaluate_experiment(
 def _save_equity_curve(
     pred_df: pd.DataFrame,
     out_path: Path,
-    fee: float = BROKERAGE_FEE,
+    fee: float = 0.0,
     n_pools: int = 10,
     execution_priority: str = "model_confidence",
     top_k_per_timestamp: Optional[int] = None,

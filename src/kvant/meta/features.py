@@ -13,8 +13,6 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from kvant import BROKERAGE_FEE
-
 META_FEATURE_COLUMNS = [
     "side_confidence",
     "side",
@@ -75,7 +73,7 @@ def add_meta_features(
     pred_df: pd.DataFrame,
     *,
     history_df: Optional[pd.DataFrame] = None,
-    fee: float = BROKERAGE_FEE,
+    fee: float = 0.0,
     shrinkage_k: float = 10.0,
 ) -> pd.DataFrame:
     """
@@ -167,7 +165,7 @@ def build_meta_training_frame(
     pred_df: pd.DataFrame,
     *,
     history_df: Optional[pd.DataFrame] = None,
-    fee: float = BROKERAGE_FEE,
+    fee: float = 0.0,
     shrinkage_k: float = 10.0,
 ) -> pd.DataFrame:
     """Return the trainable directional subset with all feature columns present."""

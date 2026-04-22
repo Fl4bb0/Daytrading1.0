@@ -30,6 +30,7 @@ class PipelineConfigTests(unittest.TestCase):
             self.assertEqual(cfg["predict"]["split"], "test")
             self.assertEqual(cfg["ensemble"]["models"], [])
             self.assertFalse(bool(cfg["meta"]["enabled"]))
+            self.assertEqual(float(cfg["trading"]["brokerage_fee"]), 0.0008)
 
     def test_validation_accepts_known_ensemble_models(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -233,6 +234,34 @@ class PipelineConfigTests(unittest.TestCase):
                     [
                         "[predict]",
                         "ticker_cooldown_minutes = -5",
+                    ]
+                )
+            )
+            with self.assertRaises(SystemExit):
+                load_pipeline_config(cfg_path)
+
+    def test_validation_accepts_non_negative_brokerage_fee(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_path = Path(tmpdir) / "pipeline.toml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "[trading]",
+                        "brokerage_fee = 0.0012",
+                    ]
+                )
+            )
+            cfg, _ = load_pipeline_config(cfg_path)
+            self.assertEqual(float(cfg["trading"]["brokerage_fee"]), 0.0012)
+
+    def test_validation_rejects_negative_brokerage_fee(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_path = Path(tmpdir) / "pipeline.toml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "[trading]",
+                        "brokerage_fee = -0.001",
                     ]
                 )
             )

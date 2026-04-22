@@ -7,6 +7,9 @@ prepared_root = "prepared"
 checkpoints_root = "checkpoints"
 sync_state = "sync_state.json"
 
+[trading]
+brokerage_fee = 0.0008
+
 [data]
 interval = "1m"
 symbols = ["AAPL", "ABNB", "ACN", "ADBE", "ADI", "AFRM", "AI", "AMAT", "AMD", "AMZN", "ANET", "APPS", "ARM", "ASML", "AVGO", "BABA", "BIDU", "BILI", "CDNS", "CFLT", "COIN", "CRM", "CRWD", "CSCO", "CTSH", "DDOG", "DELL", "DOCU", "ESTC", "FIS", "FISV", "FTNT", "GLOB", "GOOG", "GOOGL", "GPN", "HPE", "HPQ", "HUBS", "IBM", "INFY", "INTC", "INTU", "IOT", "JD", "KLAC", "LRCX", "MA", "MCHP", "MDB", "MELI", "META", "MPWR", "MRVL", "MSFT", "MU", "NET", "NFLX", "NOW", "NTAP", "NTES", "NVDA", "NXPI", "OKTA", "ON", "ORCL", "PANW", "PATH", "PDD", "PLTR", "PYPL", "QCOM", "QRVO", "RBLX", "ROKU", "SAP", "SE", "SHOP", "SMCI", "SNOW", "SNPS", "SONY", "SPOT", "STX", "SWKS", "TCEHY", "TCOM", "TEAM", "TSLA", "TSM", "TWLO", "TXN", "U", "UBER", "V", "VEEV", "WDC", "WIT", "ZM", "ZS"]

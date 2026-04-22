@@ -33,6 +33,7 @@ def main() -> None:
     predict_cfg = cfg["predict"]
     ensemble_cfg = cfg.get("ensemble", {})
     meta_cfg = cfg.get("meta", {})
+    trading_cfg = cfg.get("trading", {})
 
     exp_id = str(predict_cfg.get("experiment_id", "last"))
     if exp_id == "last":
@@ -49,6 +50,7 @@ def main() -> None:
     meta_train_split = str(meta_cfg.get("train_split", "val"))
     meta_alpha = float(meta_cfg.get("alpha", 1.0))
     meta_shrinkage_k = float(meta_cfg.get("shrinkage_k", 10.0))
+    brokerage_fee = float(trading_cfg.get("brokerage_fee", 0.0008))
 
     model_names = normalize_model_names(ensemble_cfg.get("models"))
     use_ensemble = bool(model_names)
@@ -117,6 +119,7 @@ def main() -> None:
     )
     meta_train_df = build_meta_training_frame(
         pred_df,
+        fee=brokerage_fee,
         shrinkage_k=meta_shrinkage_k,
     )
     if meta_train_df.empty:

@@ -44,7 +44,7 @@ DEFAULT_PIPELINE_CONFIG: dict[str, Any] = {
         "batch_size": 256,
         "learning_rate": 1e-3,
         "patience": 10,
-        "device": "cpu",
+        "device": "auto",
     },
     "predict": {
         "experiment_id": "last",

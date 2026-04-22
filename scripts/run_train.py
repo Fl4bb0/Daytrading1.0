@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 from kvant.utils.ensemble import normalize_model_names
+from kvant.utils.device import resolve_torch_device
 from kvant.utils.pipeline_config import load_pipeline_config
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -69,6 +70,11 @@ def main() -> None:
         raise SystemExit(f"Experiment directory not found: {exp_dir}")
 
     model_names = normalize_model_names(ensemble_cfg.get("models")) or [str(train_cfg.get("model", "conv1d"))]
+    requested_device = str(train_cfg.get("device", "auto"))
+    try:
+        device = resolve_torch_device(requested_device)
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
     if len(model_names) > 1 and "conv3d" in model_names:
         raise SystemExit(
             "conv3d cannot be used in ensemble mode in the current pipeline. "
@@ -78,7 +84,8 @@ def main() -> None:
     print(f"Experiment : {exp_dir}")
     print(f"Config     : {cfg_path}")
     print(f"Models     : {model_names}")
-    print(f"Device     : {train_cfg.get('device', 'cpu')}\n")
+    device_note = f" (from {requested_device})" if device != requested_device else ""
+    print(f"Device     : {device}{device_note}\n")
 
     cfg_data = json.loads((exp_dir / "config.json").read_text())
     lookback_L = int(cfg_data["lookback_L"])
@@ -113,7 +120,7 @@ def main() -> None:
             MODEL_REGISTRY[model_name],
             n_features=n_features,
             n_classes=n_classes,
-            device=str(train_cfg.get("device", "cpu")),
+            device=device,
             seq_len=lookback_L,
         )
 

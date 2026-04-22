@@ -25,9 +25,9 @@ vol_scale_min = 0.5
 vol_scale_max = 2.0
 skip_opening_minutes = 30
 train_start_month = "2025-01"
-train_end_month = "2025-11"
-test_start_month = "2025-12"
-test_end_month = "2026-03"
+train_end_month = "2025-06"
+test_start_month = "2025-07"
+test_end_month = "2025-07"
 
 
 [train]
@@ -37,7 +37,7 @@ epochs = 50
 batch_size = 256
 learning_rate = 0.001
 patience = 10
-device = "cpu"
+device = "auto"
 
 [predict]
 experiment_id = "last"
@@ -55,8 +55,8 @@ enabled = true # turn on the meta layer
 train_split = "val"
 alpha = 1.0 # regularization
 shrinkage_k = 10.0
-min_score_buy = 0.01 # min. meta score threshold for trade to be executed
-min_score_short = 0.02
+min_score_buy = -0.0015 # min. meta score threshold for trade to be executed
+min_score_short = -0.0033
 
 [daily]
 roll_forward = true
@@ -91,9 +91,7 @@ enable_hf_backfill = true
 verify_existing_months = true
 backfill_status_file = ".hf_backfill_status.json"
 backfill_time_windows = [
-    { start = "2025-01", end = "2025-01" },
-    { start = "2025-02", end = "2025-02" }
-    #{ start = "2025-10", end = "2025-12" }
+    { start = "2025-01", end = "2025-12" }
 ]
 
 [hf_config]

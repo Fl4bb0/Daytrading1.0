@@ -14,6 +14,7 @@ from kvant import BROKERAGE_FEE
 from kvant.evaluation import build_prediction_frame, evaluate_experiment
 from kvant.models.base import KvantModel
 from kvant.training.trainer import TrainConfig
+from kvant.utils.device import resolve_torch_device
 from kvant.utils.ensemble import ensemble_slug, normalize_model_names
 from kvant.utils.pipeline_config import list_from_config
 
@@ -176,6 +177,10 @@ def run_benchmark(
     shallow_model_name = "shallow_cnn"
     shallow_epochs = int(benchmark_cfg.get("shallow_epochs", min(int(train_cfg.get("epochs", 50)), 20)))
     shallow_patience = int(benchmark_cfg.get("shallow_patience", min(int(train_cfg.get("patience", 10)), 5)))
+    try:
+        device = resolve_torch_device(str(train_cfg.get("device", "auto")))
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
 
     ensemble_model_names = normalize_model_names(cfg.get("ensemble", {}).get("models"))
     if not ensemble_model_names:
@@ -309,7 +314,7 @@ def run_benchmark(
             exp_dir=exp_dir,
             checkpoint_dir=shallow_path,
             model_name=shallow_model_name,
-            device=str(train_cfg.get("device", "cpu")),
+            device=device,
             epochs=shallow_epochs,
             batch_size=int(train_cfg.get("batch_size", 256)),
             learning_rate=float(train_cfg.get("learning_rate", 1e-3)),
@@ -613,6 +618,7 @@ def _train_model_checkpoint(
                 "batch_size": batch_size,
                 "learning_rate": learning_rate,
                 "patience": patience,
+                "device": device,
                 "best_epoch": history.get("best_epoch"),
                 "best_val_accuracy": history.get("best_val_accuracy"),
             },

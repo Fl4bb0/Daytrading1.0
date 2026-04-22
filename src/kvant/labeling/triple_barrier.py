@@ -196,6 +196,7 @@ class TripleBarrierLabeler(Labeler):
     height: float = 0.01
     drop_time_exit: bool = False
     show_progress: bool = True
+    brokerage_fee: float = 0.0
     volatility_scale_mode: str = "none"   # "none" | "ticker_std"
     vol_scale_min: float = 0.5
     vol_scale_max: float = 2.0
@@ -215,8 +216,9 @@ class TripleBarrierLabeler(Labeler):
 
     def _effective_height(self, df: pd.DataFrame) -> float:
         base = float(self.height)
+        round_trip_fee = 2.0 * float(self.brokerage_fee)
         if self.volatility_scale_mode == "none":
-            return base
+            return base + round_trip_fee
         if self.volatility_scale_mode != "ticker_std":
             raise ValueError(
                 f"Unknown volatility_scale_mode={self.volatility_scale_mode!r}. "
@@ -226,11 +228,11 @@ class TripleBarrierLabeler(Labeler):
         ref = self._fit_reference_vol
         cur = self._series_volatility(df)
         if ref is None or cur is None or ref <= 0.0:
-            return base
+            return base + round_trip_fee
 
         raw_scale = cur / ref
         scale = float(np.clip(raw_scale, self.vol_scale_min, self.vol_scale_max))
-        return base * scale
+        return base * scale + round_trip_fee
 
     def fit(self, df: pd.DataFrame) -> "TripleBarrierLabeler":
         df = ensure_utc_sorted_index(df)

@@ -373,6 +373,7 @@ def build_default_components(
     width_minutes: int | None = None,
     height_pct: float = 0.5,
     target_bars_per_day: int | None = None,
+    brokerage_fee: float = 0.0,
 ):
     """
     Return (sampler, fe, labeler, cfg) wired with sensible defaults,
@@ -409,6 +410,7 @@ def build_default_components(
         width_minutes=effective_width_minutes,
         height=height_pct / 100,
         drop_time_exit=False,
+        brokerage_fee=float(brokerage_fee),
         volatility_scale_mode=vol_mode,
         vol_scale_min=float(vol_scale_min),
         vol_scale_max=float(vol_scale_max),
@@ -477,6 +479,7 @@ def prepare_from_yahoo(
     interval: str = "1d",
     val_frac: float = 0.15,
     test_frac: float = 0.15,
+    brokerage_fee: Optional[float] = None,
 ) -> PreparedExperimentManifest:
     """
     Fetch data from Yahoo Finance and run the full preparation pipeline.
@@ -492,7 +495,15 @@ def prepare_from_yahoo(
         val_frac=val_frac, test_frac=test_frac,
     )
 
-    sampler, fe, labeler, cfg = build_default_components(interval=interval)
+    if brokerage_fee is None:
+        from kvant.utils.pipeline_config import DEFAULT_PIPELINE_CONFIG
+
+        brokerage_fee = float(DEFAULT_PIPELINE_CONFIG["trading"]["brokerage_fee"])
+
+    sampler, fe, labeler, cfg = build_default_components(
+        interval=interval,
+        brokerage_fee=float(brokerage_fee),
+    )
 
     PREPARED_DATA_ROOT.mkdir(parents=True, exist_ok=True)
     manifest = prepare_experiment(

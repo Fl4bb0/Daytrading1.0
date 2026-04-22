@@ -63,6 +63,7 @@ def main():
     interval = cfg["data"].get("interval", _DEFAULT_INTERVAL)
     val_frac = float(cfg["prepare"].get("val_frac", 0.15))
     test_frac = float(cfg["prepare"].get("test_frac", 0.15))
+    brokerage_fee = float(cfg.get("trading", {}).get("brokerage_fee", 0.0008))
 
     # Decide which layout to use
     use_partition = args.use_partition or (
@@ -124,6 +125,7 @@ def main():
         width_minutes=int(cfg["prepare"].get("width_minutes", 20)),
         height_pct=float(cfg["prepare"].get("height_pct", 0.5)),
         target_bars_per_day=int(cfg["prepare"].get("target_bars_per_day", 195)),
+        brokerage_fee=brokerage_fee,
     )
 
     PREPARED_DATA_ROOT.mkdir(parents=True, exist_ok=True)

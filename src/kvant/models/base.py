@@ -70,6 +70,8 @@ class KvantModel(ABC):
         """
         Return class probabilities (float array, shape (n, n_classes)).
         Override if the model supports soft predictions.
+
+        Array format: rows are samples, columns are classes, values are probabilities.
         """
         raise NotImplementedError(f"{self.name} does not support predict_proba.")
 

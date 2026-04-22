@@ -69,6 +69,16 @@ split = "test"
 show = false
 # out_dir = "prepared/<exp-id>/eval/<model>_<split>/figures"
 
+[benchmark]
+benchmark_id = "benchmark_test"
+single_model = "resnls"
+random_seeds = 50
+random_seed_start = 0
+# random_trade_probability = 0.10 # unset means match council post-meta directional rate
+random_fallback_trade_probability = 0.03 # used when council produces zero directional trades
+shallow_epochs = 20
+shallow_patience = 5
+
 [ensemble]
 models = ["resnls", "conv1d", "tsb"]
 
@@ -90,4 +100,3 @@ backfill_time_windows = [
 # HuggingFace dataset details (set dataset_id to use HF source)
 dataset_id = "mito0o852/OHLCV-1m"
 cache_dir = "~/.cache/huggingface"
-

@@ -447,9 +447,11 @@ def _save_equity_curve(
     A new trade is skipped if all pools are occupied.  Each trade's
     portfolio impact is ``trade_pnl_pct / n_pools``.
 
-    Both gross (theoretical, no pool limit) and portfolio-level columns
-    (with pool allocation and optional fees) are included. When several
-    trades share the same timestamp, ``execution_priority`` decides which
+    The output ``timestamp`` is the equity event time: the trade's exit
+    timestamp. Entry and exit timestamps are also written explicitly. Both
+    gross (theoretical, no pool limit) and portfolio-level columns (with
+    pool allocation and optional fees) are included. When several trades
+    share the same entry timestamp, ``execution_priority`` decides which
     ones claim scarce pools first. ``top_k_per_timestamp`` and
     ``ticker_cooldown_minutes`` can further reduce execution churn.
     """
@@ -466,7 +468,7 @@ def _save_equity_curve(
     round_trip_fee_pct = 2.0 * float(fee) * 100.0   # percentage points
 
     _empty_cols = [
-        "timestamp", "ticker", "action",
+        "timestamp", "entry_timestamp", "exit_timestamp", "ticker", "action",
         "trade_pnl_pct", "cumulative_pnl_pct",
         "portfolio_pnl_pct", "cumulative_portfolio_pnl_pct",
         "portfolio_pnl_net_pct", "cumulative_portfolio_pnl_net_pct",
@@ -489,10 +491,13 @@ def _save_equity_curve(
     pool_free_at: list[pd.Timestamp] = [pd.Timestamp.min] * n_pools
     rows = []
 
-    for row in candidates:
+    for event_order, row in enumerate(candidates):
         yp = int(row["y_pred"])
-        entry_ts = row["timestamp"]
-        exit_ts = row.get("bar_close_time")
+        entry_ts = pd.Timestamp(row["timestamp"])
+        exit_ts = pd.Timestamp(row.get("bar_close_time"))
+        if pd.isna(entry_ts) or pd.isna(exit_ts):
+            continue
+
         signed_pnl = (-1.0 if yp == 0 else 1.0) * float(row["pnl_fraction"])
         gross_pct = signed_pnl * 100.0
 
@@ -514,7 +519,9 @@ def _save_equity_curve(
         portfolio_pnl_net = 0.0 if skipped else (gross_pct - round_trip_fee_pct) / n_pools
 
         rows.append({
-            "timestamp":          entry_ts,
+            "timestamp":          exit_ts,
+            "entry_timestamp":    entry_ts,
+            "exit_timestamp":     exit_ts,
             "ticker":             row["ticker"],
             "action":             _LABEL_NAMES[yp],
             "trade_pnl_pct":      gross_pct,
@@ -522,14 +529,21 @@ def _save_equity_curve(
             "portfolio_pnl_net_pct": portfolio_pnl_net,
             "pools_busy":         busy,
             "skipped":            skipped,
+            "_event_order":       event_order,
         })
 
+    if not rows:
+        pd.DataFrame(columns=_empty_cols).to_csv(out_path, index=False)
+        return
+
     eq_df = pd.DataFrame(rows)
+    eq_df = eq_df.sort_values(["timestamp", "_event_order"], kind="mergesort").reset_index(drop=True)
     # Gross cumulative (theoretical, no pool limit)
     eq_df["cumulative_pnl_pct"] = eq_df["trade_pnl_pct"].cumsum()
     # Portfolio cumulative (pool-allocated)
     eq_df["cumulative_portfolio_pnl_pct"] = eq_df["portfolio_pnl_pct"].cumsum()
     eq_df["cumulative_portfolio_pnl_net_pct"] = eq_df["portfolio_pnl_net_pct"].cumsum()
+    eq_df = eq_df.drop(columns=["_event_order"])
     eq_df.to_csv(out_path, index=False)
 
 

@@ -359,13 +359,8 @@ def _buy_and_hold_return(eq_df, predictions_df=None) -> float | None:
 
     returns = []
     for ticker in tickers:
-        csv_path = store_dir / f"{ticker}.csv"
-        if not csv_path.exists():
-            continue
-        raw = pd.read_csv(csv_path, parse_dates=["timestamp"], index_col="timestamp")
-        if raw.index.tz is None:
-            raw.index = raw.index.tz_localize("UTC")
-        if "close" not in raw.columns:
+        raw = _load_price_history(store_dir, ticker)
+        if raw is None or "close" not in raw.columns:
             continue
         sliced = raw.loc[t_min:t_max, "close"].dropna()
         if len(sliced) < 2:
@@ -376,6 +371,32 @@ def _buy_and_hold_return(eq_df, predictions_df=None) -> float | None:
     if not returns:
         return None
     return sum(returns) / len(returns)
+
+
+def _load_price_history(store_dir: Path, ticker: str):
+    """Load flat and month-partitioned OHLCV files for one ticker."""
+    import pandas as pd
+
+    paths: list[Path] = []
+    flat_path = store_dir / f"{ticker}.csv"
+    if flat_path.exists():
+        paths.append(flat_path)
+    paths.extend(sorted(store_dir.glob(f"????-??/{ticker}.csv")))
+
+    frames = []
+    for path in paths:
+        raw = pd.read_csv(path)
+        if "timestamp" not in raw.columns:
+            continue
+        raw["timestamp"] = pd.to_datetime(raw["timestamp"], errors="coerce", utc=True)
+        raw = raw.dropna(subset=["timestamp"]).set_index("timestamp").sort_index()
+        frames.append(raw)
+
+    if not frames:
+        return None
+
+    out = pd.concat(frames, axis=0, sort=True).sort_index()
+    return out[~out.index.duplicated(keep="last")]
 
 
 # ---------------------------------------------------------------------------
@@ -405,8 +426,6 @@ def plot_equity_curve_time(dfs: dict, out_dir: Path, show: bool) -> None:
         print("  [skip] equity_curve.csv has no valid rows after parsing — skipping time-based equity curve.")
         return
 
-    t_min = df["timestamp"].iloc[0]
-    t_max = df["timestamp"].iloc[-1]
     ts = df["timestamp"].values
     port = df["cumulative_portfolio_pnl_pct"].values
 
@@ -414,19 +433,24 @@ def plot_equity_curve_time(dfs: dict, out_dir: Path, show: bool) -> None:
     store_dir = _PROJECT_ROOT / "data" / "1m"
     bnh_series = None
     if store_dir.exists() and "ticker" in df.columns:
-        if "predictions" in dfs and "ticker" in dfs["predictions"].columns:
-            tickers = dfs["predictions"]["ticker"].dropna().unique()
-        else:
-            tickers = df["ticker"].dropna().unique()
+        bnh_window = None
+        tickers = df["ticker"].dropna().unique()
+        if "predictions" in dfs and {"timestamp", "ticker"}.issubset(dfs["predictions"].columns):
+            pred = dfs["predictions"].copy()
+            pred["timestamp"] = pd.to_datetime(pred["timestamp"], errors="coerce", utc=True)
+            pred = pred.dropna(subset=["timestamp", "ticker"])
+            if len(pred) >= 2:
+                bnh_window = (pred["timestamp"].min(), pred["timestamp"].max())
+                tickers = pred["ticker"].dropna().unique()
+
+        if bnh_window is None:
+            bnh_window = (df["timestamp"].iloc[0], df["timestamp"].iloc[-1])
+
+        t_min, t_max = bnh_window
         cum_returns = []
         for ticker in tickers:
-            csv_path = store_dir / f"{ticker}.csv"
-            if not csv_path.exists():
-                continue
-            raw = pd.read_csv(csv_path, parse_dates=["timestamp"], index_col="timestamp")
-            if raw.index.tz is None:
-                raw.index = raw.index.tz_localize("UTC")
-            if "close" not in raw.columns:
+            raw = _load_price_history(store_dir, ticker)
+            if raw is None or "close" not in raw.columns:
                 continue
             sliced = raw.loc[t_min:t_max, "close"].dropna()
             if len(sliced) < 2:

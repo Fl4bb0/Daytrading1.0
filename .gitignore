@@ -18,4 +18,8 @@ cache/
 
 checkpoints/
 
+# Downloaded HuggingFace month-partitioned OHLCV data.
+data/1m/[0-9][0-9][0-9][0-9]-[0-9][0-9]/
+.hf_backfill_status.json
+
 ignore/

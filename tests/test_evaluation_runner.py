@@ -166,6 +166,56 @@ class ExecutionPriorityTests(unittest.TestCase):
         self.assertEqual(len(eq_df), 2)
         self.assertEqual(list(eq_df["ticker"]), ["HIGH", "MID"])
 
+    def test_equity_curve_realizes_pnl_at_exit_time(self) -> None:
+        pred_df = pd.DataFrame(
+            {
+                "timestamp": pd.to_datetime(
+                    [
+                        "2025-01-02 14:30:00",
+                        "2025-01-02 14:40:00",
+                    ]
+                ),
+                "ticker": ["SLOW", "FAST"],
+                "y_pred": [2, 2],
+                "pnl_fraction": [0.01, 0.02],
+                "bar_close_time": pd.to_datetime(
+                    [
+                        "2025-01-02 15:00:00",
+                        "2025-01-02 14:45:00",
+                    ]
+                ),
+                "prob_BUY": [0.60, 0.70],
+                "prob_SHORT": [0.01, 0.01],
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_path = Path(tmpdir) / "equity_curve.csv"
+            _save_equity_curve(
+                pred_df,
+                out_path,
+                fee=0.0,
+                n_pools=2,
+                execution_priority="first_seen",
+            )
+            eq_df = pd.read_csv(out_path)
+
+        self.assertEqual(list(eq_df["ticker"]), ["FAST", "SLOW"])
+        self.assertEqual(
+            list(pd.to_datetime(eq_df["timestamp"]).dt.strftime("%H:%M:%S")),
+            ["14:45:00", "15:00:00"],
+        )
+        self.assertEqual(
+            list(pd.to_datetime(eq_df["entry_timestamp"]).dt.strftime("%H:%M:%S")),
+            ["14:40:00", "14:30:00"],
+        )
+        self.assertEqual(
+            list(pd.to_datetime(eq_df["exit_timestamp"]).dt.strftime("%H:%M:%S")),
+            ["14:45:00", "15:00:00"],
+        )
+        self.assertAlmostEqual(float(eq_df.loc[0, "cumulative_portfolio_pnl_pct"]), 1.0)
+        self.assertAlmostEqual(float(eq_df.loc[1, "cumulative_portfolio_pnl_pct"]), 1.5)
+
     def test_ticker_cooldown_minutes_blocks_quick_reentry(self) -> None:
         pred_df = pd.DataFrame(
             {
@@ -207,6 +257,10 @@ class ExecutionPriorityTests(unittest.TestCase):
         self.assertEqual(list(eq_df["ticker"]), ["AAA", "AAA"])
         self.assertEqual(
             list(pd.to_datetime(eq_df["timestamp"]).dt.strftime("%H:%M:%S")),
+            ["14:35:00", "15:40:00"],
+        )
+        self.assertEqual(
+            list(pd.to_datetime(eq_df["entry_timestamp"]).dt.strftime("%H:%M:%S")),
             ["14:30:00", "15:35:00"],
         )
 

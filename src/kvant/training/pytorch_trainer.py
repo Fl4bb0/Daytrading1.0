@@ -58,10 +58,16 @@ def _to_loader(
     y: np.ndarray,
     batch_size: int,
     shuffle: bool = False,
+    pin_memory: bool = False,
 ) -> DataLoader:
     tx = torch.tensor(X, dtype=torch.float32)
     ty = torch.tensor(y, dtype=torch.long)
-    return DataLoader(TensorDataset(tx, ty), batch_size=batch_size, shuffle=shuffle, pin_memory=True)
+    return DataLoader(
+        TensorDataset(tx, ty),
+        batch_size=batch_size,
+        shuffle=shuffle,
+        pin_memory=pin_memory,
+    )
 
 
 def _class_weights(y: np.ndarray, n_classes: int) -> torch.Tensor:
@@ -122,8 +128,19 @@ class PytorchTrainer(Trainer):
         net: nn.Module = self._pytorch_model.net
         cfg = self.cfg
 
-        train_loader = _to_loader(X_train, y_train, cfg.batch_size, shuffle=True)
-        val_loader   = _to_loader(X_val, y_val, cfg.batch_size) if X_val is not None else None
+        pin_memory = self._device.type == "cuda"
+        train_loader = _to_loader(
+            X_train,
+            y_train,
+            cfg.batch_size,
+            shuffle=True,
+            pin_memory=pin_memory,
+        )
+        val_loader = (
+            _to_loader(X_val, y_val, cfg.batch_size, pin_memory=pin_memory)
+            if X_val is not None
+            else None
+        )
 
         n_classes = int(y_train.max()) + 1
         weights   = _class_weights(y_train, n_classes).to(self._device)

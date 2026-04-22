@@ -47,7 +47,7 @@ DEFAULT_PIPELINE_CONFIG: dict[str, Any] = {
         "batch_size": 256,
         "learning_rate": 1e-3,
         "patience": 10,
-        "device": "cpu",
+        "device": "auto",
     },
     "predict": {
         "experiment_id": "last",
@@ -78,6 +78,16 @@ DEFAULT_PIPELINE_CONFIG: dict[str, Any] = {
         "split": "test",
         "show": False,
         "out_dir": None,
+    },
+    "benchmark": {
+        "benchmark_id": "benchmark_test",
+        "single_model": "resnls",
+        "random_seeds": 50,
+        "random_seed_start": 0,
+        "random_trade_probability": None,
+        "random_fallback_trade_probability": 0.03,
+        "shallow_epochs": 20,
+        "shallow_patience": 5,
     },
 }
 
@@ -225,6 +235,33 @@ def _validate_config(cfg: dict[str, Any], path: Path) -> None:
             "predict.execution_priority=meta_score requires meta.enabled=true "
             f"in {path}"
         )
+
+    benchmark_cfg = cfg.get("benchmark", {})
+    benchmark_single = str(benchmark_cfg.get("single_model", cfg["predict"].get("model", "conv1d")))
+    if benchmark_single not in MODEL_REGISTRY:
+        raise SystemExit(
+            f"Unknown benchmark.single_model '{benchmark_single}' in {path}. "
+            f"Available: {list(MODEL_REGISTRY.keys())}"
+        )
+
+    if int(benchmark_cfg.get("random_seeds", 50)) <= 0:
+        raise SystemExit(f"benchmark.random_seeds must be > 0 in {path}")
+
+    random_trade_probability = benchmark_cfg.get("random_trade_probability")
+    if random_trade_probability not in (None, ""):
+        value = float(random_trade_probability)
+        if value < 0.0 or value > 1.0:
+            raise SystemExit(f"benchmark.random_trade_probability must be between 0 and 1 in {path}")
+
+    random_fallback_trade_probability = float(benchmark_cfg.get("random_fallback_trade_probability", 0.03))
+    if random_fallback_trade_probability < 0.0 or random_fallback_trade_probability > 1.0:
+        raise SystemExit(f"benchmark.random_fallback_trade_probability must be between 0 and 1 in {path}")
+
+    if int(benchmark_cfg.get("shallow_epochs", 20)) <= 0:
+        raise SystemExit(f"benchmark.shallow_epochs must be > 0 in {path}")
+
+    if int(benchmark_cfg.get("shallow_patience", 5)) <= 0:
+        raise SystemExit(f"benchmark.shallow_patience must be > 0 in {path}")
 
 
 def list_from_config(value: Any) -> list[str] | None:

@@ -56,6 +56,7 @@ DEFAULT_PIPELINE_CONFIG: dict[str, Any] = {
         "tickers": [],
         "required_buy_probability": 0.6,
         "required_sell_probability": 0.6,
+        "allow_short": True,
         "execution_priority": "model_confidence",
         "top_k_per_timestamp": None,
         "ticker_cooldown_minutes": 0,
@@ -192,6 +193,9 @@ def _validate_config(cfg: dict[str, Any], path: Path) -> None:
         value = float(cfg["predict"].get(key, 0.0))
         if value < 0.0 or value > 1.0:
             raise SystemExit(f"predict.{key} must be between 0 and 1 in {path}")
+
+    if not isinstance(cfg["predict"].get("allow_short", True), bool):
+        raise SystemExit(f"predict.allow_short must be true or false in {path}")
 
     execution_priority = str(cfg["predict"].get("execution_priority", "model_confidence"))
     if execution_priority not in {"first_seen", "model_confidence", "meta_score"}:

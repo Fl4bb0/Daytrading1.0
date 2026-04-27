@@ -50,6 +50,7 @@ def main() -> None:
 
     required_buy_probability = float(predict_cfg.get("required_buy_probability", 0.0))
     required_sell_probability = float(predict_cfg.get("required_sell_probability", 0.0))
+    allow_short = bool(predict_cfg.get("allow_short", True))
     execution_priority = str(predict_cfg.get("execution_priority", "model_confidence"))
     top_k_raw = predict_cfg.get("top_k_per_timestamp")
     top_k_per_timestamp = None if top_k_raw in (None, "", 0) else int(top_k_raw)
@@ -157,6 +158,7 @@ def main() -> None:
         fee=brokerage_fee,
         required_buy_probability=required_buy_probability,
         required_sell_probability=required_sell_probability,
+        allow_short=allow_short,
         execution_priority=execution_priority,
         top_k_per_timestamp=top_k_per_timestamp,
         ticker_cooldown_minutes=ticker_cooldown_minutes,

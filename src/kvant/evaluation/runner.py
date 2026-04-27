@@ -170,6 +170,7 @@ def evaluate_experiment(
     n_pools: int = 10,
     required_buy_probability: float = 0.0,
     required_sell_probability: float = 0.0,
+    allow_short: bool = True,
     execution_priority: str = "model_confidence",
     top_k_per_timestamp: Optional[int] = None,
     ticker_cooldown_minutes: int = 0,
@@ -251,6 +252,7 @@ def evaluate_experiment(
     n_tickers = artifacts.n_tickers
     n_thresholded_to_hold = int(np.sum((y_pred_raw != y_pred) & np.isin(y_pred_raw, [0, 2])))
     n_meta_thresholded_to_hold = 0
+    n_short_blocked_by_policy = 0
 
     if meta_model is not None:
         from kvant.meta import add_meta_features
@@ -275,6 +277,19 @@ def evaluate_experiment(
                 (pred_df["y_pred_pre_meta"].to_numpy(dtype=np.int64) != y_pred)
                 & np.isin(pred_df["y_pred_pre_meta"].to_numpy(dtype=np.int64), [0, 2])
             )
+        )
+        pred_df["y_pred"] = y_pred
+        pred_df["y_pred_name"] = [
+            _LABEL_NAMES[int(v)] if int(v) in _LABEL_IDS else str(v)
+            for v in y_pred
+        ]
+
+    pred_df["y_pred_pre_policy"] = pred_df["y_pred"].astype(int)
+    pred_df["y_pred_pre_policy_name"] = pred_df["y_pred_name"]
+    if not bool(allow_short):
+        y_pred = _apply_short_execution_policy(y_pred, allow_short=allow_short)
+        n_short_blocked_by_policy = int(
+            np.sum(pred_df["y_pred_pre_policy"].to_numpy(dtype=np.int64) == 0)
         )
         pred_df["y_pred"] = y_pred
         pred_df["y_pred_name"] = [
@@ -401,11 +416,13 @@ def evaluate_experiment(
         "tickers":         ",".join(sorted(ticker_map.values())),
         "required_buy_probability": float(required_buy_probability),
         "required_sell_probability": float(required_sell_probability),
+        "allow_short": bool(allow_short),
         "execution_priority": execution_priority,
         "top_k_per_timestamp": "" if top_k_per_timestamp is None else int(top_k_per_timestamp),
         "ticker_cooldown_minutes": ticker_cooldown_minutes,
         "n_thresholded_to_hold": n_thresholded_to_hold,
         "n_meta_thresholded_to_hold": n_meta_thresholded_to_hold,
+        "n_short_blocked_by_policy": n_short_blocked_by_policy,
         "meta_enabled": bool(meta_model is not None),
         "meta_model_path": "" if meta_model_path is None else str(meta_model_path),
         "meta_train_split": "" if meta_train_split is None else str(meta_train_split),
@@ -686,6 +703,14 @@ def _apply_meta_score_thresholds(
         buy_mask = out == 2
         out[buy_mask & (score < float(min_score_buy))] = 1
 
+    return out
+
+
+def _apply_short_execution_policy(y_pred: np.ndarray, *, allow_short: bool) -> np.ndarray:
+    """Demote SHORT predictions to HOLD when short execution is disabled."""
+    out = np.asarray(y_pred, dtype=np.int64).copy()
+    if not bool(allow_short):
+        out[out == 0] = 1
     return out
 
 

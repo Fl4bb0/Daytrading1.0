@@ -10,7 +10,6 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 
-from kvant import BROKERAGE_FEE
 from kvant.evaluation import build_prediction_frame, evaluate_experiment
 from kvant.models.base import KvantModel
 from kvant.training.trainer import TrainConfig
@@ -138,6 +137,7 @@ def run_benchmark(
     train_cfg = cfg["train"]
     meta_cfg = cfg.get("meta", {})
     benchmark_cfg = cfg.get("benchmark", {})
+    brokerage_fee = float(cfg.get("trading", {}).get("brokerage_fee", 0.0008))
 
     prepared_root = Path(paths_cfg.get("prepared_root", "prepared"))
     checkpoints_root = Path(paths_cfg.get("checkpoints_root", "checkpoints"))
@@ -150,6 +150,7 @@ def run_benchmark(
     requested_tickers = list_from_config(predict_cfg.get("tickers")) or None
     required_buy_probability = float(predict_cfg.get("required_buy_probability", 0.0))
     required_sell_probability = float(predict_cfg.get("required_sell_probability", 0.0))
+    allow_short = bool(predict_cfg.get("allow_short", True))
     top_k_raw = predict_cfg.get("top_k_per_timestamp")
     top_k_per_timestamp = None if top_k_raw in (None, "", 0) else int(top_k_raw)
     ticker_cooldown_minutes = int(predict_cfg.get("ticker_cooldown_minutes", 0))
@@ -231,9 +232,10 @@ def run_benchmark(
         out_dir=council_dir,
         split=split,
         tickers=requested_tickers,
-        fee=BROKERAGE_FEE,
+        fee=brokerage_fee,
         required_buy_probability=required_buy_probability,
         required_sell_probability=required_sell_probability,
+        allow_short=allow_short,
         execution_priority=execution_priority,
         top_k_per_timestamp=top_k_per_timestamp,
         ticker_cooldown_minutes=ticker_cooldown_minutes,
@@ -285,9 +287,10 @@ def run_benchmark(
         out_dir=single_dir,
         split=split,
         tickers=requested_tickers,
-        fee=BROKERAGE_FEE,
+        fee=brokerage_fee,
         required_buy_probability=required_buy_probability,
         required_sell_probability=required_sell_probability,
+        allow_short=allow_short,
         execution_priority=execution_priority,
         top_k_per_timestamp=top_k_per_timestamp,
         ticker_cooldown_minutes=ticker_cooldown_minutes,
@@ -333,9 +336,10 @@ def run_benchmark(
         out_dir=shallow_dir,
         split=split,
         tickers=requested_tickers,
-        fee=BROKERAGE_FEE,
+        fee=brokerage_fee,
         required_buy_probability=required_buy_probability,
         required_sell_probability=required_sell_probability,
+        allow_short=allow_short,
         execution_priority=_non_meta_execution_priority(execution_priority),
         top_k_per_timestamp=top_k_per_timestamp,
         ticker_cooldown_minutes=ticker_cooldown_minutes,
@@ -365,9 +369,10 @@ def run_benchmark(
             out_dir=random_dir,
             split=split,
             tickers=requested_tickers,
-            fee=BROKERAGE_FEE,
+            fee=brokerage_fee,
             required_buy_probability=required_buy_probability,
             required_sell_probability=required_sell_probability,
+            allow_short=allow_short,
             execution_priority="model_confidence",
             top_k_per_timestamp=top_k_per_timestamp,
             ticker_cooldown_minutes=ticker_cooldown_minutes,
@@ -668,6 +673,8 @@ def _summarize_eval_run(run: _EvalRun) -> dict[str, Any]:
             "ticker_cooldown_minutes",
             "n_thresholded_to_hold",
             "n_meta_thresholded_to_hold",
+            "allow_short",
+            "n_short_blocked_by_policy",
             "meta_enabled",
         ]:
             if key in meta.columns:

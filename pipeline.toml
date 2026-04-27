@@ -8,7 +8,7 @@ checkpoints_root = "checkpoints"
 sync_state = "sync_state.json"
 
 [trading]
-brokerage_fee = 0.0008
+brokerage_fee = 0.0004
 
 [data]
 interval = "1m"
@@ -49,6 +49,7 @@ split = "test"
 tickers = []
 required_buy_probability = 0.5
 required_sell_probability = 0.5
+allow_short = false # option to go long only
 execution_priority = "meta_score" # write model_confidence to switch
 top_k_per_timestamp = 2
 ticker_cooldown_minutes = 60

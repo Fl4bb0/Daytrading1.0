@@ -6,7 +6,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from kvant.evaluation.runner import _apply_meta_score_thresholds, _save_equity_curve
+from kvant.evaluation.runner import (
+    _apply_meta_score_thresholds,
+    _apply_short_execution_policy,
+    _save_equity_curve,
+)
 
 
 class ExecutionPriorityTests(unittest.TestCase):
@@ -276,6 +280,15 @@ class ExecutionPriorityTests(unittest.TestCase):
         )
 
         self.assertEqual(list(out), [0, 1, 2, 1])
+
+    def test_short_execution_policy_demotes_short_to_hold(self) -> None:
+        y_pred = pd.Series([0, 1, 2, 0], dtype="int64").to_numpy()
+
+        blocked = _apply_short_execution_policy(y_pred, allow_short=False)
+        allowed = _apply_short_execution_policy(y_pred, allow_short=True)
+
+        self.assertEqual(list(blocked), [1, 1, 2, 1])
+        self.assertEqual(list(allowed), [0, 1, 2, 0])
 
 
 if __name__ == "__main__":

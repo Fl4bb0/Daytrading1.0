@@ -65,6 +65,7 @@ src/kvant/training/predict.py
 src/kvant/training/pytorch_trainer.py
 src/kvant/training/trainer.py
 src/kvant/utils/__init__.py
+src/kvant/utils/device.py
 src/kvant/utils/ensemble.py
 src/kvant/utils/index_utils.py
 src/kvant/utils/pipeline_config.py
@@ -73,6 +74,7 @@ src/kvant/utils/time_utils.py
 tests/test_alpha_vantage_retriever.py
 tests/test_benchmarking.py
 tests/test_daily_sync.py
+tests/test_device.py
 tests/test_ensemble_model.py
 tests/test_evaluation_runner.py
 tests/test_feature_engineering.py

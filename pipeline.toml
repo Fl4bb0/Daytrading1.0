@@ -32,6 +32,22 @@ train_end_month = "2025-06"
 test_start_month = "2025-07"
 test_end_month = "2025-07"
 
+[walk_forward]
+enabled = true
+mode = "expanding"
+# run_id = "wf_manual_name"
+start_month = "2025-01"
+end_month = "2025-07"
+train_span_months = 4
+val_span_months = 1
+test_span_months = 1
+step_span_months = 1
+gap_days = 0
+max_train_span_months = 6
+min_train_rows_per_ticker = 1
+min_val_rows_per_ticker = 1
+min_test_rows_per_ticker = 1
+
 
 [train]
 experiment_id = "last"
@@ -95,7 +111,7 @@ enable_hf_backfill = true
 verify_existing_months = true
 backfill_status_file = ".hf_backfill_status.json"
 backfill_time_windows = [
-    { start = "2025-01", end = "2025-12" }
+    { start = "2025-01", end = "2025-07" }
 ]
 
 [hf_config]

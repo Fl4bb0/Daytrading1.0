@@ -12,6 +12,18 @@ CONFIG="${1:-pipeline.toml}"
 META_ENABLED="$(
 python3 -c 'import pathlib, sys, tomllib; cfg = tomllib.loads(pathlib.Path(sys.argv[1]).read_text()); print("true" if bool(cfg.get("meta", {}).get("enabled", False)) else "false")' "$CONFIG"
 )"
+WALK_FORWARD_ENABLED="$(
+python3 -c 'import pathlib, sys, tomllib; cfg = tomllib.loads(pathlib.Path(sys.argv[1]).read_text()); print("true" if bool(cfg.get("walk_forward", {}).get("enabled", False)) else "false")' "$CONFIG"
+)"
+if [ "$WALK_FORWARD_ENABLED" = "true" ]; then
+echo "Config: $CONFIG"
+echo ""
+echo "--- [1/1] Walk Forward ---"
+uv run --env-file .env.run scripts/run_walk_forward.py --config "$CONFIG"
+echo ""
+echo "Pipeline complete."
+exit 0
+fi
 TOTAL_STEPS=4
 if [ "$META_ENABLED" = "true" ]; then
   TOTAL_STEPS=5

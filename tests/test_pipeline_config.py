@@ -196,6 +196,66 @@ class PipelineConfigTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 load_pipeline_config(cfg_path)
 
+    def test_validation_accepts_walk_forward_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_path = Path(tmpdir) / "pipeline.toml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "[walk_forward]",
+                        "enabled = true",
+                    ]
+                )
+            )
+            cfg, _ = load_pipeline_config(cfg_path)
+            self.assertTrue(bool(cfg["walk_forward"]["enabled"]))
+            self.assertEqual(cfg["predict"]["split"], "test")
+
+    def test_validation_rejects_walk_forward_non_test_predict_split(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_path = Path(tmpdir) / "pipeline.toml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "[walk_forward]",
+                        "enabled = true",
+                        "",
+                        "[predict]",
+                        "split = \"val\"",
+                    ]
+                )
+            )
+            with self.assertRaises(SystemExit):
+                load_pipeline_config(cfg_path)
+
+    def test_validation_rejects_invalid_walk_forward_month(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_path = Path(tmpdir) / "pipeline.toml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "[walk_forward]",
+                        "start_month = \"2025-13\"",
+                    ]
+                )
+            )
+            with self.assertRaises(SystemExit):
+                load_pipeline_config(cfg_path)
+
+    def test_validation_rejects_invalid_walk_forward_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_path = Path(tmpdir) / "pipeline.toml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "[walk_forward]",
+                        "mode = \"sliding\"",
+                    ]
+                )
+            )
+            with self.assertRaises(SystemExit):
+                load_pipeline_config(cfg_path)
+
     def test_validation_accepts_meta_side_thresholds(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg_path = Path(tmpdir) / "pipeline.toml"

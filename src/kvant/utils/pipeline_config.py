@@ -37,6 +37,22 @@ DEFAULT_PIPELINE_CONFIG: dict[str, Any] = {
         "vol_scale_min": 0.5,
         "vol_scale_max": 2.0,
     },
+    "walk_forward": {
+        "enabled": False,
+        "mode": "expanding",
+        "run_id": "",
+        "start_month": None,
+        "end_month": None,
+        "train_span_months": 6,
+        "val_span_months": 1,
+        "test_span_months": 1,
+        "step_span_months": 1,
+        "gap_days": 0,
+        "max_train_span_months": None,
+        "min_train_rows_per_ticker": 1,
+        "min_val_rows_per_ticker": 1,
+        "min_test_rows_per_ticker": 1,
+    },
     "ensemble": {
         "models": [],
     },
@@ -150,6 +166,38 @@ def _validate_config(cfg: dict[str, Any], path: Path) -> None:
     if int(cfg["prepare"]["target_bars_per_day"]) <= 0:
         raise SystemExit(f"target_bars_per_day must be > 0 in {path}")
 
+    walk_cfg = cfg.get("walk_forward", {})
+    walk_mode = str(walk_cfg.get("mode", "expanding"))
+    if walk_mode not in {"expanding", "rolling"}:
+        raise SystemExit(f"walk_forward.mode must be one of expanding|rolling in {path}")
+
+    for key in ("train_span_months", "val_span_months", "test_span_months", "step_span_months"):
+        if int(walk_cfg.get(key, 1)) <= 0:
+            raise SystemExit(f"walk_forward.{key} must be > 0 in {path}")
+
+    if int(walk_cfg.get("gap_days", 0)) < 0:
+        raise SystemExit(f"walk_forward.gap_days must be >= 0 in {path}")
+
+    max_train_span_months = walk_cfg.get("max_train_span_months")
+    if max_train_span_months not in (None, "", 0) and int(max_train_span_months) <= 0:
+        raise SystemExit(f"walk_forward.max_train_span_months must be > 0 when set in {path}")
+
+    for key in ("min_train_rows_per_ticker", "min_val_rows_per_ticker", "min_test_rows_per_ticker"):
+        if int(walk_cfg.get(key, 1)) <= 0:
+            raise SystemExit(f"walk_forward.{key} must be > 0 in {path}")
+
+    for key in ("start_month", "end_month"):
+        value = walk_cfg.get(key)
+        if value in (None, ""):
+            continue
+        if not _looks_like_year_month(str(value)):
+            raise SystemExit(f"walk_forward.{key} must use YYYY-MM in {path}")
+
+    start_month = walk_cfg.get("start_month")
+    end_month = walk_cfg.get("end_month")
+    if start_month not in (None, "") and end_month not in (None, "") and str(start_month) > str(end_month):
+        raise SystemExit(f"walk_forward.start_month must be <= walk_forward.end_month in {path}")
+
     ensemble_models = list_from_config(cfg.get("ensemble", {}).get("models")) or []
 
     from kvant.models import MODEL_REGISTRY
@@ -188,6 +236,8 @@ def _validate_config(cfg: dict[str, Any], path: Path) -> None:
 
     if str(cfg["predict"]["split"]) not in {"train", "val", "test"}:
         raise SystemExit(f"predict.split must be one of train|val|test in {path}")
+    if bool(walk_cfg.get("enabled", False)) and str(cfg["predict"]["split"]) != "test":
+        raise SystemExit(f"predict.split must be test when walk_forward.enabled=true in {path}")
 
     for key in ("required_buy_probability", "required_sell_probability"):
         value = float(cfg["predict"].get(key, 0.0))
@@ -276,3 +326,14 @@ def list_from_config(value: Any) -> list[str] | None:
     if isinstance(value, list):
         return [str(v) for v in value]
     raise SystemExit("Expected a list or string in pipeline config")
+
+
+def _looks_like_year_month(value: str) -> bool:
+    if len(value) != 7:
+        return False
+    if value[4] != "-":
+        return False
+    year, month = value[:4], value[5:]
+    if not (year.isdigit() and month.isdigit()):
+        return False
+    return 1 <= int(month) <= 12

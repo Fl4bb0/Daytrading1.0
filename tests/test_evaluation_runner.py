@@ -6,6 +6,9 @@ from pathlib import Path
 
 import pandas as pd
 
+from kvant.evaluation.runner import _build_ensemble_member_comparison
+from kvant.models.base import KvantModel
+from kvant.models.ensemble import AveragingEnsembleModel
 from kvant.evaluation.runner import (
     _apply_meta_score_thresholds,
     _apply_short_execution_policy,
@@ -289,6 +292,61 @@ class ExecutionPriorityTests(unittest.TestCase):
 
         self.assertEqual(list(blocked), [1, 1, 2, 1])
         self.assertEqual(list(allowed), [0, 1, 2, 0])
+
+    def test_ensemble_member_comparison_ranks_best_member_first(self) -> None:
+        class _StaticModel(KvantModel):
+            def __init__(self, name: str, y_pred: list[int]) -> None:
+                self._name = name
+                self._y_pred = np.asarray(y_pred, dtype=np.int64)
+
+            @property
+            def name(self) -> str:
+                return self._name
+
+            def fit(self, X_train, y_train, X_val=None, y_val=None, **kwargs):
+                raise NotImplementedError
+
+            def predict(self, X):
+                return self._y_pred.copy()
+
+            def predict_proba(self, X):
+                proba = np.zeros((len(self._y_pred), 3), dtype=np.float32)
+                proba[np.arange(len(self._y_pred)), self._y_pred] = 1.0
+                return proba
+
+            def save(self, path: Path) -> None:
+                raise NotImplementedError
+
+            @classmethod
+            def load(cls, path: Path):
+                raise NotImplementedError
+
+        import numpy as np
+
+        y_true = np.asarray([2, 0, 2, 1], dtype=np.int64)
+        X = np.zeros((len(y_true), 2, 2), dtype=np.float32)
+        metas = [
+            {"label": 2, "pnl_fraction": 0.01},
+            {"label": 0, "pnl_fraction": 0.02},
+            {"label": 2, "pnl_fraction": 0.03},
+            {"label": 1, "pnl_fraction": 0.00},
+        ]
+
+        good = _StaticModel("good", [2, 0, 2, 1])
+        bad = _StaticModel("bad", [0, 2, 0, 1])
+        ensemble = AveragingEnsembleModel([good, bad], member_names=["good", "bad"])
+
+        out = _build_ensemble_member_comparison(
+            model=ensemble,
+            X=X,
+            y=y_true,
+            metas=metas,
+            required_buy_probability=0.0,
+            required_sell_probability=0.0,
+            allow_short=True,
+        )
+        self.assertEqual(list(out["member_name"]), ["good", "bad"])
+        self.assertEqual(list(out["rank"]), [1, 2])
 
 
 if __name__ == "__main__":

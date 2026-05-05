@@ -1,0 +1,1 @@
+When running Python scripts, they must run from root with "uv run --env-file .env.run [script]"

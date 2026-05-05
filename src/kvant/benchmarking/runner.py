@@ -423,9 +423,45 @@ def _resolve_experiment_id(prepared_root: Path, exp_id: str) -> str:
     if exp_id != "last":
         return exp_id
     last_file = prepared_root / "last_experiment.txt"
-    if not last_file.exists():
-        raise SystemExit(f"No last_experiment.txt found in {prepared_root}.")
-    return last_file.read_text().strip()
+    if last_file.exists():
+        return last_file.read_text().strip()
+
+    # Fallback: use the latest completed walk-forward fold when available.
+    wf_last_file = prepared_root / "last_walk_forward.txt"
+    if wf_last_file.exists():
+        run_root = Path(wf_last_file.read_text().strip())
+        manifest_path = run_root / "walk_forward_manifest.json"
+        if manifest_path.exists():
+            try:
+                manifest = json.loads(manifest_path.read_text())
+            except Exception:
+                manifest = {}
+            completed = manifest.get("completed", [])
+            if isinstance(completed, list) and completed:
+                def _sort_key(row: dict) -> tuple[int, str]:
+                    try:
+                        idx = int(row.get("fold_index", -1))
+                    except Exception:
+                        idx = -1
+                    return idx, str(row.get("fold_id", ""))
+
+                latest = sorted(completed, key=_sort_key)[-1]
+                fold_dir = str(latest.get("fold_dir", "")).strip()
+                if fold_dir:
+                    fold_path = Path(fold_dir)
+                    try:
+                        rel = fold_path.resolve().relative_to(prepared_root.resolve())
+                        print(
+                            "[benchmark] last_experiment.txt missing; "
+                            f"falling back to latest walk-forward fold: {rel}"
+                        )
+                        return str(rel)
+                    except ValueError:
+                        pass
+
+    raise SystemExit(
+        f"No last_experiment.txt found in {prepared_root}, and no usable walk-forward fallback was found."
+    )
 
 
 def _optional_float(value: Any) -> Optional[float]:

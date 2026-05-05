@@ -44,6 +44,7 @@ _EXECUTION_PRIORITIES = {"first_seen", "model_confidence", "meta_score"}
 
 @dataclass
 class PredictionArtifacts:
+    X: np.ndarray
     pred_df: pd.DataFrame
     y: np.ndarray
     y_pred: np.ndarray
@@ -123,6 +124,7 @@ def _build_prediction_artifacts(
     )
 
     return PredictionArtifacts(
+        X=X,
         pred_df=pred_df,
         y=y,
         y_pred=y_pred,
@@ -242,6 +244,7 @@ def evaluate_experiment(
         model=model,
     )
     pred_df = artifacts.pred_df
+    X = artifacts.X
     y = artifacts.y
     y_pred = artifacts.y_pred
     y_pred_raw = artifacts.y_pred_raw
@@ -401,7 +404,23 @@ def evaluate_experiment(
         calib.to_csv(out_dir / "directional_calibration.csv", index=False)
 
     # ------------------------------------------------------------------
-    # 11. run_meta.csv
+    # 11. ensemble_member_comparison.csv (ensemble/council only)
+    # ------------------------------------------------------------------
+    from kvant.models.ensemble import AveragingEnsembleModel
+    if isinstance(model, AveragingEnsembleModel):
+        ensemble_member_df = _build_ensemble_member_comparison(
+            model=model,
+            X=X,
+            y=y,
+            metas=metas,
+            required_buy_probability=required_buy_probability,
+            required_sell_probability=required_sell_probability,
+            allow_short=allow_short,
+        )
+        ensemble_member_df.to_csv(out_dir / "ensemble_member_comparison.csv", index=False)
+
+    # ------------------------------------------------------------------
+    # 12. run_meta.csv
     # ------------------------------------------------------------------
     experiment_id = exp_dir.name
     run_meta = {
@@ -561,6 +580,90 @@ def _save_equity_curve(
     eq_df["cumulative_portfolio_pnl_net_pct"] = eq_df["portfolio_pnl_net_pct"].cumsum()
     eq_df = eq_df.drop(columns=["_event_order"])
     eq_df.to_csv(out_path, index=False)
+
+
+def _build_ensemble_member_comparison(
+    *,
+    model,
+    X: np.ndarray,
+    y: np.ndarray,
+    metas: List[Optional[dict]],
+    required_buy_probability: float,
+    required_sell_probability: float,
+    allow_short: bool,
+) -> pd.DataFrame:
+    rows: list[dict] = []
+    members = list(getattr(model, "members", []))
+    member_names = list(getattr(model, "member_names", []))
+
+    for idx, member in enumerate(members):
+        member_name = (
+            str(member_names[idx])
+            if idx < len(member_names)
+            else str(getattr(member, "name", f"member_{idx}"))
+        )
+        y_pred_raw = np.asarray(member.predict(X), dtype=np.int64)
+
+        member_proba: Optional[np.ndarray] = None
+        try:
+            member_proba = member.predict_proba(X)
+        except NotImplementedError:
+            member_proba = None
+
+        y_pred = _apply_action_probability_thresholds(
+            y_pred=y_pred_raw,
+            proba=member_proba,
+            required_sell_probability=required_sell_probability,
+            required_buy_probability=required_buy_probability,
+        )
+        y_pred = _apply_short_execution_policy(y_pred, allow_short=allow_short)
+
+        metrics = classification_metrics(y, y_pred)
+        ret_stats = compute_return_stats(y_pred=y_pred, metas=metas)
+        directional = _overall_directional_summary(
+            pd.DataFrame({"y_true": y, "y_pred": y_pred})
+        )
+        rows.append(
+            {
+                "member_name": member_name,
+                "member_class_name": type(member).__name__,
+                "accuracy": float(metrics.get("accuracy", 0.0)),
+                "directional_accuracy": float(directional.get("directional_accuracy", 0.0)),
+                "directional_opposite_rate": float(directional.get("directional_opposite_rate", 0.0)),
+                "accuracy_call_put/avg": float(ret_stats.get("accuracy_call_put/avg", 0.0)),
+                "bruto_profit_pct/avg": float(ret_stats.get("bruto_profit_pct/avg", 0.0)),
+                "directional_true_n": float(directional.get("directional_true_n", 0.0)),
+            }
+        )
+
+    if not rows:
+        return pd.DataFrame(
+            columns=[
+                "rank",
+                "member_name",
+                "member_class_name",
+                "accuracy",
+                "directional_accuracy",
+                "directional_opposite_rate",
+                "accuracy_call_put/avg",
+                "bruto_profit_pct/avg",
+                "directional_true_n",
+            ]
+        )
+
+    df = pd.DataFrame(rows)
+    df = df.sort_values(
+        [
+            "bruto_profit_pct/avg",
+            "directional_accuracy",
+            "accuracy",
+            "accuracy_call_put/avg",
+        ],
+        ascending=[False, False, False, False],
+        kind="stable",
+    ).reset_index(drop=True)
+    df.insert(0, "rank", np.arange(1, len(df) + 1))
+    return df
 
 
 def _collect_candidate_trades(

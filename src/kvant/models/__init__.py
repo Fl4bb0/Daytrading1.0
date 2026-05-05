@@ -3,6 +3,7 @@ from kvant.models.base import KvantModel
 from kvant.models.conv1d import Conv1DModel
 from kvant.models.conv3d import Conv3DModel
 from kvant.models.ensemble import AveragingEnsembleModel
+from kvant.models.logreg import LogisticRegressionModel
 from kvant.models.resnls import ResNLSModel
 from kvant.models.shallow_cnn import ShallowCNNModel
 from kvant.models.tsb import TSBModel
@@ -14,6 +15,7 @@ MODEL_REGISTRY: dict[str, type[KvantModel]] = {
     "resnls":  ResNLSModel,
     "shallow_cnn": ShallowCNNModel,
     "tsb":     TSBModel,
+    "logreg":  LogisticRegressionModel,
 }
 
 __all__ = [
@@ -21,6 +23,7 @@ __all__ = [
     "Conv1DModel",
     "Conv3DModel",
     "AveragingEnsembleModel",
+    "LogisticRegressionModel",
     "ResNLSModel",
     "ShallowCNNModel",
     "TSBModel",

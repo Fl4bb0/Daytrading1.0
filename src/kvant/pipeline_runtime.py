@@ -96,8 +96,9 @@ def train_experiment(exp_dir: Path, pipeline_cfg: dict) -> list[TrainedModelArti
     n_features = X_train.shape[1]
     n_classes = int(y_train.max()) + 1
 
+    import torch.nn as nn
     from kvant.models import MODEL_REGISTRY
-    from kvant.training.pytorch_trainer import PytorchTrainer
+    from kvant.training import PytorchTrainer, SklearnTrainer
     from kvant.training.trainer import TrainConfig
 
     artifacts: list[TrainedModelArtifact] = []
@@ -127,16 +128,22 @@ def train_experiment(exp_dir: Path, pipeline_cfg: dict) -> list[TrainedModelArti
             early_stopping_patience=int(train_cfg.get("patience", 10)),
             checkpoint_dir=checkpoint_dir,
         )
-        trainer = PytorchTrainer(model, cfg)
+        if isinstance(getattr(model, "net", None), nn.Module):
+            trainer = PytorchTrainer(model, cfg)
+        else:
+            trainer = SklearnTrainer(model, cfg)
         history = trainer.fit(X_train, y_train, X_val, y_val)
         test_metrics = trainer.evaluate(X_test, y_test)
         model.save(checkpoint_dir)
+        best_val = history.get("best_val_accuracy")
+        if best_val is None:
+            best_val = float("nan")
         artifacts.append(
             TrainedModelArtifact(
                 model_name=model_name,
                 checkpoint_dir=checkpoint_dir,
-                best_val_accuracy=float(history["best_val_accuracy"]),
-                best_epoch=int(history["best_epoch"]),
+                best_val_accuracy=float(best_val),
+                best_epoch=int(history.get("best_epoch", 1)),
                 test_metrics={key: float(value) for key, value in test_metrics.items()},
             )
         )
@@ -182,12 +189,13 @@ def load_runtime_model(exp_dir: Path, pipeline_cfg: dict) -> LoadedModelRuntime:
             prepared_root=prepared_root,
             model_name=model_name,
         )
-        if not (checkpoint / "weights.pt").exists():
+        try:
+            member_models.append(MODEL_REGISTRY[model_name].load(checkpoint))
+        except FileNotFoundError as exc:
             raise SystemExit(
-                f"No checkpoint found at {checkpoint}/weights.pt. "
+                f"No checkpoint found at {checkpoint} for model '{model_name}'. "
                 "Train the experiment before prediction."
-            )
-        member_models.append(MODEL_REGISTRY[model_name].load(checkpoint))
+            ) from exc
         member_paths.append(checkpoint)
 
     if len(member_models) == 1 and not use_ensemble:
@@ -401,4 +409,3 @@ def _build_model(model_cls, *, n_features: int, n_classes: int, device: str, seq
     }
     accepted = inspect.signature(model_cls.__init__).parameters
     return model_cls(**{key: value for key, value in kwargs.items() if key in accepted})
-

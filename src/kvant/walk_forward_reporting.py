@@ -38,9 +38,52 @@ def write_walk_forward_aggregate(
     aggregate_dir.mkdir(parents=True, exist_ok=True)
 
     pd.DataFrame(fold_rows).to_csv(aggregate_dir / "fold_summary.csv", index=False)
+    fold_summary_df = pd.DataFrame(fold_rows)
+    if not fold_summary_df.empty:
+        fold_summary_df = fold_summary_df.sort_values(
+            ["fold_index", "fold_id"],
+            kind="stable",
+        ).reset_index(drop=True)
+        fold_summary_df["step"] = fold_summary_df.index + 1
+
+        net_col = "portfolio_cumulative_pnl_net_pct"
+        if net_col in fold_summary_df.columns:
+            fold_summary_df["cumulative_net_pnl_pct_across_steps"] = (
+                pd.to_numeric(fold_summary_df[net_col], errors="coerce")
+                .fillna(0.0)
+                .cumsum()
+            )
+
+        step_cols = [
+            "step",
+            "fold_id",
+            "fold_index",
+            "test_start",
+            "test_end_exclusive",
+            "overall_accuracy",
+            "directional_accuracy",
+            "win_rate",
+            "n_directional_trades",
+            "portfolio_cumulative_pnl_pct",
+            "portfolio_cumulative_pnl_net_pct",
+            "cumulative_net_pnl_pct_across_steps",
+            "best_val_accuracy_max",
+            "model_names",
+        ]
+        available_step_cols = [c for c in step_cols if c in fold_summary_df.columns]
+        fold_summary_df[available_step_cols].to_csv(
+            aggregate_dir / "walk_forward_step_metrics.csv",
+            index=False,
+        )
+
+        fold_summary_df.to_csv(
+            aggregate_dir / "walk_forward_fold_metrics.csv",
+            index=False,
+        )
 
     pred_parts: List[pd.DataFrame] = []
     run_meta_rows: List[dict] = []
+    ensemble_member_parts: List[pd.DataFrame] = []
     for row in fold_rows:
         eval_dir = Path(row["eval_dir"])
         pred_path = eval_dir / "predictions.csv"
@@ -60,6 +103,13 @@ def write_walk_forward_aggregate(
                 meta_row = meta_df.iloc[0].to_dict()
                 meta_row["fold_id"] = row["fold_id"]
                 run_meta_rows.append(meta_row)
+
+        ensemble_member_path = eval_dir / "ensemble_member_comparison.csv"
+        if ensemble_member_path.exists():
+            member_df = pd.read_csv(ensemble_member_path)
+            if not member_df.empty:
+                member_df["fold_id"] = row["fold_id"]
+                ensemble_member_parts.append(member_df)
 
     if not pred_parts:
         raise SystemExit("No fold prediction outputs were found to aggregate.")
@@ -153,6 +203,44 @@ def write_walk_forward_aggregate(
     if calib is not None:
         calib.to_csv(aggregate_dir / "directional_calibration.csv", index=False)
 
+    if ensemble_member_parts:
+        members_all = pd.concat(ensemble_member_parts, ignore_index=True)
+        members_all.to_csv(aggregate_dir / "ensemble_member_comparison_by_fold.csv", index=False)
+
+        numeric_cols = [
+            "accuracy",
+            "directional_accuracy",
+            "directional_opposite_rate",
+            "accuracy_call_put/avg",
+            "bruto_profit_pct/avg",
+            "directional_true_n",
+        ]
+        for col in numeric_cols:
+            if col in members_all.columns:
+                members_all[col] = pd.to_numeric(members_all[col], errors="coerce")
+
+        agg_rows: list[dict] = []
+        for member_name, sub in members_all.groupby("member_name", sort=False):
+            row = {
+                "member_name": str(member_name),
+                "member_class_name": str(sub["member_class_name"].iloc[0]) if "member_class_name" in sub.columns else "",
+                "n_folds_present": int(sub["fold_id"].nunique()),
+            }
+            for col in numeric_cols:
+                if col in sub.columns:
+                    row[col] = float(sub[col].mean(skipna=True))
+            agg_rows.append(row)
+
+        members_agg = pd.DataFrame(agg_rows)
+        if not members_agg.empty:
+            members_agg = members_agg.sort_values(
+                ["bruto_profit_pct/avg", "directional_accuracy", "accuracy", "accuracy_call_put/avg"],
+                ascending=[False, False, False, False],
+                kind="stable",
+            ).reset_index(drop=True)
+            members_agg.insert(0, "rank", np.arange(1, len(members_agg) + 1))
+        members_agg.to_csv(aggregate_dir / "ensemble_member_comparison.csv", index=False)
+
     pd.DataFrame(run_meta_rows).to_csv(aggregate_dir / "fold_run_meta.csv", index=False)
     aggregate_run_meta = {
         "timestamp_run": datetime.now(tz=timezone.utc).isoformat(),
@@ -188,4 +276,3 @@ def _prediction_rows_to_metas(pred_df: pd.DataFrame) -> list[Optional[dict]]:
             }
         )
     return metas
-

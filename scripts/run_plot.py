@@ -13,6 +13,8 @@ Figures saved to <eval-dir>/figures/
 08_prob_distributions.png      — predicted class probability histograms (if available)
 09_directional_drift.png       — per-ticker directional drift / opposite-rate diagnostics
 10_directional_calibration.png — confidence-binned directional accuracy (if available)
+12_walk_forward_progress.png   — step/fold progression for walk-forward aggregate runs
+13_ensemble_member_comparison.png — council member ranking (if ensemble member CSV exists)
 
 Usage
 -----
@@ -34,6 +36,8 @@ def _load_csvs(eval_dir: Path) -> dict:
         "classification_metrics", "confusion_matrix", "label_distribution",
         "predictions", "trade_stats", "return_stats", "equity_curve", "run_meta",
         "directional_drift", "directional_calibration",
+        "fold_summary", "walk_forward_step_metrics", "walk_forward_fold_metrics",
+        "ensemble_member_comparison",
     ]
     dfs = {}
     for name in required:
@@ -687,45 +691,49 @@ def plot_backtest_comparison(dfs: dict, out_dir: Path, show: bool, max_tickers: 
     if traded_counts.empty:
         print("  [skip] No BUY/SHORT predictions in this split — skipping backtest comparison.")
         return
-    tickers = traded_counts.head(max_tickers).index.tolist()
-
-    n = len(tickers)
-    fig, axes = plt.subplots(n, 2, figsize=(18, 5 * n), squeeze=False)
-    fig.suptitle("Backtest: Model Predictions vs Buy-and-Hold", fontsize=16, fontweight="bold", y=1.01)
+    candidate_tickers = traded_counts.index.tolist()
 
     # HOLD signals are intentionally omitted from the price-panel overlay:
     # they don't open trades, so they only add visual noise.
     colour_map = {"SHORT": "#d62728", "BUY": "#2ca02c"}
     marker_map = {"SHORT": "v", "BUY": "^"}
-
-    for row_idx, ticker in enumerate(tickers):
-        ax_price = axes[row_idx, 0]
-        ax_returns = axes[row_idx, 1]
-
-        # Load raw 1m price data
+    ticker_payloads: list[tuple[str, pd.DataFrame, pd.Series]] = []
+    for ticker in candidate_tickers:
+        if len(ticker_payloads) >= max_tickers:
+            break
         csv_path = store_dir / f"{ticker}.csv"
         if not csv_path.exists():
-            ax_price.text(0.5, 0.5, f"No CSV for {ticker}", ha="center", va="center")
-            ax_returns.text(0.5, 0.5, f"No CSV for {ticker}", ha="center", va="center")
             continue
-
         raw = pd.read_csv(csv_path, parse_dates=["timestamp"], index_col="timestamp")
+        if raw.empty or "close" not in raw.columns:
+            continue
         if raw.index.tz is None:
             raw.index = raw.index.tz_localize("UTC")
 
-        # Filter to test period (timestamps in predictions)
         ticker_preds = pred_df[pred_df["ticker"] == ticker].copy()
         if ticker_preds.empty:
             continue
-
         t_min = ticker_preds["timestamp"].min() - pd.Timedelta(minutes=30)
         t_max = ticker_preds["timestamp"].max() + pd.Timedelta(minutes=30)
         price_slice = raw.loc[t_min:t_max].copy()
-
         if price_slice.empty or "close" not in price_slice.columns:
             continue
+        close = price_slice["close"].dropna()
+        if close.empty:
+            continue
+        ticker_payloads.append((ticker, ticker_preds, close))
 
-        close = price_slice["close"]
+    if not ticker_payloads:
+        print("  [skip] No tickers had aligned price data for backtest comparison.")
+        return
+
+    n = len(ticker_payloads)
+    fig, axes = plt.subplots(n, 2, figsize=(18, 5 * n), squeeze=False)
+    fig.suptitle("Backtest: Model Predictions vs Buy-and-Hold", fontsize=16, fontweight="bold", y=1.01)
+
+    for row_idx, (ticker, ticker_preds, close) in enumerate(ticker_payloads):
+        ax_price = axes[row_idx, 0]
+        ax_returns = axes[row_idx, 1]
 
         # --- Left panel: price chart with prediction markers ---
         ax_price.plot(close.index, close.values, color="#4C72B0", linewidth=0.8, alpha=0.8, label="Close")
@@ -803,6 +811,151 @@ def plot_backtest_comparison(dfs: dict, out_dir: Path, show: bool, max_tickers: 
 
     plt.tight_layout()
     _save(fig, out_dir / "11_backtest_comparison.png", show)
+
+
+def plot_walk_forward_progress(dfs: dict, out_dir: Path, show: bool) -> None:
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import pandas as pd
+
+    wf_df = None
+    if "walk_forward_step_metrics" in dfs and not dfs["walk_forward_step_metrics"].empty:
+        wf_df = dfs["walk_forward_step_metrics"].copy()
+    elif "fold_summary" in dfs and not dfs["fold_summary"].empty:
+        wf_df = dfs["fold_summary"].copy()
+    if wf_df is None or wf_df.empty:
+        return
+
+    if "fold_index" in wf_df.columns:
+        wf_df["fold_index"] = pd.to_numeric(wf_df["fold_index"], errors="coerce")
+        wf_df = wf_df.sort_values(["fold_index", "fold_id"], kind="stable")
+    elif "fold_id" in wf_df.columns:
+        wf_df = wf_df.sort_values(["fold_id"], kind="stable")
+    wf_df = wf_df.reset_index(drop=True)
+    wf_df["step"] = np.arange(1, len(wf_df) + 1)
+
+    fig, axes = plt.subplots(2, 1, figsize=(14, 9), sharex=True)
+    fig.suptitle("Walk-Forward Step and Fold Comparison", fontweight="bold")
+    x = wf_df["step"].to_numpy()
+    fold_labels = wf_df["fold_id"].astype(str).tolist() if "fold_id" in wf_df.columns else [f"step_{i}" for i in x]
+
+    if "overall_accuracy" in wf_df.columns:
+        axes[0].plot(
+            x,
+            pd.to_numeric(wf_df["overall_accuracy"], errors="coerce"),
+            marker="o",
+            color="#4C72B0",
+            label="Overall accuracy",
+        )
+    if "directional_accuracy" in wf_df.columns:
+        axes[0].plot(
+            x,
+            pd.to_numeric(wf_df["directional_accuracy"], errors="coerce"),
+            marker="s",
+            color="#55A868",
+            label="Directional accuracy",
+        )
+    axes[0].set_ylim(0, 1)
+    axes[0].set_ylabel("Accuracy")
+    axes[0].grid(alpha=0.3)
+    if axes[0].has_data():
+        axes[0].legend()
+
+    pnl_col = None
+    for candidate in ("portfolio_cumulative_pnl_net_pct", "portfolio_cumulative_pnl_pct"):
+        if candidate in wf_df.columns:
+            pnl_col = candidate
+            break
+    if pnl_col is not None:
+        pnl_values = pd.to_numeric(wf_df[pnl_col], errors="coerce").fillna(0.0).to_numpy()
+        colors = ["#2ca02c" if v >= 0 else "#d62728" for v in pnl_values]
+        axes[1].bar(x, pnl_values, color=colors, alpha=0.85, label=pnl_col)
+        axes[1].plot(x, np.cumsum(pnl_values), color="#DD8452", linewidth=2, marker="o", label="Cumulative across steps")
+        axes[1].axhline(0, color="black", linewidth=0.8, linestyle="--")
+        axes[1].set_ylabel("PnL (%)")
+        axes[1].legend()
+    else:
+        axes[1].text(0.5, 0.5, "No fold-level PnL column available", ha="center", va="center", transform=axes[1].transAxes)
+    axes[1].grid(axis="y", alpha=0.3)
+    axes[1].set_xlabel("Walk-forward fold / step")
+    axes[1].set_xticks(x)
+    axes[1].set_xticklabels(fold_labels, rotation=35, ha="right")
+
+    plt.tight_layout()
+    _save(fig, out_dir / "12_walk_forward_progress.png", show)
+
+
+def plot_ensemble_member_comparison(dfs: dict, out_dir: Path, show: bool) -> None:
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import pandas as pd
+
+    if "ensemble_member_comparison" not in dfs:
+        return
+    df = dfs["ensemble_member_comparison"].copy()
+    if df.empty or "member_name" not in df.columns:
+        return
+
+    if "rank" in df.columns:
+        df = df.sort_values("rank", kind="stable")
+    else:
+        df = df.reset_index(drop=True)
+        df["rank"] = np.arange(1, len(df) + 1)
+
+    metric_col = "bruto_profit_pct/avg" if "bruto_profit_pct/avg" in df.columns else None
+    if metric_col is None:
+        return
+
+    labels = df["member_name"].astype(str).tolist()
+    metric_vals = pd.to_numeric(df[metric_col], errors="coerce").fillna(0.0).to_numpy()
+    acc_vals = (
+        pd.to_numeric(df["accuracy"], errors="coerce").fillna(0.0).to_numpy()
+        if "accuracy" in df.columns
+        else None
+    )
+    dir_vals = (
+        pd.to_numeric(df["directional_accuracy"], errors="coerce").fillna(0.0).to_numpy()
+        if "directional_accuracy" in df.columns
+        else None
+    )
+
+    fig, axes = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+    fig.suptitle("Ensemble Member Comparison", fontweight="bold")
+
+    bar_colors = ["#2ca02c" if v >= 0 else "#d62728" for v in metric_vals]
+    bars = axes[0].bar(labels, metric_vals, color=bar_colors, alpha=0.85)
+    axes[0].axhline(0, color="black", linewidth=0.8, linestyle="--")
+    axes[0].set_ylabel("Avg Profit (%)")
+    axes[0].set_title("Member Ranking by Average Trade Profit")
+    axes[0].grid(axis="y", alpha=0.3)
+    for b, v in zip(bars, metric_vals):
+        axes[0].text(
+            b.get_x() + b.get_width() / 2,
+            b.get_height() + (0.02 if v >= 0 else -0.02),
+            f"{v:.2f}",
+            ha="center",
+            va="bottom" if v >= 0 else "top",
+            fontsize=8,
+        )
+
+    x = np.arange(len(labels))
+    if acc_vals is not None:
+        axes[1].plot(x, acc_vals, marker="o", color="#4C72B0", label="Accuracy")
+    if dir_vals is not None:
+        axes[1].plot(x, dir_vals, marker="s", color="#55A868", label="Directional accuracy")
+    axes[1].set_ylim(0, 1)
+    axes[1].set_ylabel("Score")
+    axes[1].set_title("Classification vs Directional Accuracy")
+    axes[1].grid(alpha=0.3)
+    if axes[1].has_data():
+        axes[1].legend()
+
+    axes[1].set_xticks(x)
+    axes[1].set_xticklabels(labels, rotation=30, ha="right")
+    axes[1].set_xlabel("Ensemble member")
+
+    plt.tight_layout()
+    _save(fig, out_dir / "13_ensemble_member_comparison.png", show)
 
 
 # ---------------------------------------------------------------------------
@@ -907,6 +1060,8 @@ def main() -> None:
     plot_directional_drift(dfs, out_dir, show)
     plot_directional_calibration(dfs, out_dir, show)
     plot_backtest_comparison(dfs, out_dir, show)
+    plot_walk_forward_progress(dfs, out_dir, show)
+    plot_ensemble_member_comparison(dfs, out_dir, show)
 
     saved = list(out_dir.glob("*.png"))
     print(f"\nDone — {len(saved)} figures saved to {out_dir}")

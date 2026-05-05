@@ -61,6 +61,7 @@ def main():
     val_frac = float(cfg["prepare"].get("val_frac", 0.15))
     test_frac = float(cfg["prepare"].get("test_frac", 0.15))
     brokerage_fee = float(cfg.get("trading", {}).get("brokerage_fee", 0.0008))
+    num_workers = int(cfg["prepare"].get("num_workers", 1))
 
     # Decide which layout to use
     use_partition = args.use_partition or (not args.use_flat and should_use_partition_layout(cfg))
@@ -124,6 +125,7 @@ def main():
         ticker_dfs_val=val_dfs,
         ticker_dfs_test=test_dfs,
         experiment_id=cfg.experiment_name,
+        num_workers=num_workers,
     )
     (PREPARED_DATA_ROOT / "last_experiment.txt").write_text(manifest.exp_dir.name)
 

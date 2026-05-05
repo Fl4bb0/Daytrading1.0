@@ -95,7 +95,49 @@ class TripleBarrierCausalityTests(unittest.TestCase):
         self.assertIsNotNone(metadata[0])
         self.assertAlmostEqual(float(metadata[0]["height_used"]), 0.012)
 
+    def test_fastpath_matches_reference_outputs(self):
+        idx = pd.date_range("2025-01-02 14:45:00", periods=8, freq="1min")
+        df = pd.DataFrame(
+            {
+                "open": [100.0, 100.3, 99.9, 100.1, 100.2, 100.0, 100.1, 100.2],
+                "high": [100.4, 100.6, 100.1, 100.5, 100.4, 100.2, 100.3, 100.4],
+                "low": [99.8, 100.0, 99.6, 99.9, 100.0, 99.7, 99.8, 99.9],
+                "close": [100.2, 100.1, 99.8, 100.2, 100.1, 100.0, 100.2, 100.1],
+            },
+            index=idx,
+        )
+
+        ref_labeler = TripleBarrierLabeler(
+            width_minutes=3,
+            height=0.003,
+            brokerage_fee=0.0,
+            show_progress=False,
+            use_numba_fastpath=False,
+        )
+        fast_labeler = TripleBarrierLabeler(
+            width_minutes=3,
+            height=0.003,
+            brokerage_fee=0.0,
+            show_progress=False,
+            use_numba_fastpath=True,
+        )
+
+        y_ref, m_ref = ref_labeler.transform(df)
+        y_fast, m_fast = fast_labeler.transform(df)
+
+        self.assertListEqual(y_ref.tolist(), y_fast.tolist())
+        self.assertEqual(len(m_ref), len(m_fast))
+        for left, right in zip(m_ref, m_fast):
+            if left is None or right is None:
+                self.assertIs(left, right)
+                continue
+            self.assertEqual(int(left["label"]), int(right["label"]))
+            self.assertEqual(pd.Timestamp(left["bar_open_time"]), pd.Timestamp(right["bar_open_time"]))
+            self.assertEqual(pd.Timestamp(left["bar_close_time"]), pd.Timestamp(right["bar_close_time"]))
+            self.assertAlmostEqual(float(left["pnl_fraction"]), float(right["pnl_fraction"]), places=12)
+            self.assertAlmostEqual(float(left["pnl_absolute"]), float(right["pnl_absolute"]), places=12)
+            self.assertAlmostEqual(float(left["height_used"]), float(right["height_used"]), places=12)
+
 
 if __name__ == "__main__":
     unittest.main()
-

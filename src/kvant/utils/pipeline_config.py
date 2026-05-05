@@ -29,6 +29,7 @@ DEFAULT_PIPELINE_CONFIG: dict[str, Any] = {
     "prepare": {
         "val_frac": 0.15,
         "test_frac": 0.15,
+        "num_workers": 1,
         "lookback": 20,
         "width_minutes": 20,
         "height_pct": 0.5,
@@ -165,6 +166,8 @@ def _validate_config(cfg: dict[str, Any], path: Path) -> None:
 
     if int(cfg["prepare"]["target_bars_per_day"]) <= 0:
         raise SystemExit(f"target_bars_per_day must be > 0 in {path}")
+    if int(cfg["prepare"].get("num_workers", 1)) <= 0:
+        raise SystemExit(f"prepare.num_workers must be > 0 in {path}")
 
     walk_cfg = cfg.get("walk_forward", {})
     walk_mode = str(walk_cfg.get("mode", "expanding"))

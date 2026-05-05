@@ -14,7 +14,9 @@ prepare_from_yahoo() is the top-level entry-point called by scripts/run_prepare.
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import asdict, dataclass
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -102,6 +104,7 @@ def prepare_experiment(
     ticker_dfs_val: Dict[str, pd.DataFrame],
     ticker_dfs_test: Dict[str, pd.DataFrame],
     experiment_id: Optional[str] = None,
+    num_workers: int = 1,
 ) -> PreparedExperimentManifest:
     """
     Prepare a full experiment and persist all artifacts to disk.
@@ -110,9 +113,13 @@ def prepare_experiment(
     the full history (train+val+test) is concatenated, sampled, and processed
     so val/test can use the causal training history without leakage.
     """
+    stage_timings: Dict[str, float] = {}
+    t0_total = time.perf_counter()
+
     # ------------------------------------------------------------------
     # Directories + config
     # ------------------------------------------------------------------
+    t0 = time.perf_counter()
     exp_id  = cfg.stable_id() if experiment_id is None else experiment_id
     exp_dir = Path(out_root) / exp_id
     exp_dir.mkdir(parents=True, exist_ok=True)
@@ -131,6 +138,7 @@ def prepare_experiment(
     ticker_id    = {t: i for i, t in enumerate(tickers_all)}
     tickers_root = exp_dir / "tickers"
     tickers_root.mkdir(exist_ok=True)
+    stage_timings["init_dirs_and_config_sec"] = float(time.perf_counter() - t0)
 
     # ------------------------------------------------------------------
     # Infer per-ticker split boundaries from the provided DataFrames
@@ -152,6 +160,7 @@ def prepare_experiment(
     # ------------------------------------------------------------------
     # 1. Fit sampler on TRAIN only
     # ------------------------------------------------------------------
+    t0 = time.perf_counter()
     sampler.fit(ticker_dfs_train)
     (exp_dir / "sampler_global_meta.json").write_text(
         json.dumps(sampler.get_global_meta(), indent=2, default=json_default)
@@ -162,10 +171,12 @@ def prepare_experiment(
             indent=2, default=json_default,
         )
     )
+    stage_timings["fit_sampler_sec"] = float(time.perf_counter() - t0)
 
     # ------------------------------------------------------------------
     # 2. Build sampled TRAIN corpus, then fit FE + labeler on it
     # ------------------------------------------------------------------
+    t0 = time.perf_counter()
     sampled_train_parts: List[pd.DataFrame] = []
     sampled_train_by_ticker: Dict[str, pd.DataFrame] = {}
     for t in tickers_train:
@@ -196,15 +207,19 @@ def prepare_experiment(
         labeler_fit_from_ticker_dfs(sampled_train_by_ticker)
     else:
         labeler.fit(df_fit)
+    stage_timings["fit_features_and_labeler_sec"] = float(time.perf_counter() - t0)
 
     # ------------------------------------------------------------------
     # 3. Process each ticker on its full history (train + val + test)
     # ------------------------------------------------------------------
+    t0 = time.perf_counter()
     valid_pos_by_ticker: Dict[str, np.ndarray] = {}
     close_ts_by_ticker: Dict[str, np.ndarray] = {}
     density_rows: List[dict] = []
 
-    for t in tqdm.tqdm(tickers_all, desc="Preparing tickers"):
+    max_workers = max(1, int(num_workers))
+
+    def _process_ticker(t: str) -> dict:
         df_full = _concat_nonempty([
             ticker_dfs_train.get(t),
             ticker_dfs_val.get(t),
@@ -230,10 +245,6 @@ def prepare_experiment(
             for m in y_meta
         ], dtype="datetime64[ns]")
         valid_pos = valid_target_positions(y, cfg.lookback_L)
-        valid_pos_by_ticker[t] = valid_pos
-        close_ts_by_ticker[t] = close_ts
-
-        # Diagnostics
         n_raw, n_sampled = int(len(df_full)), int(len(df_s))
         retention = float(n_sampled / n_raw) if n_raw > 0 else 0.0
 
@@ -249,8 +260,6 @@ def prepare_experiment(
             "label_counts":            _label_counts(y),
             "label_counts_valid":      _label_counts(y[valid_pos]) if len(valid_pos) else {},
         }
-        density_rows.append(density_row)
-
         membership = (
             (["train"] if t in ticker_dfs_train else [])
             + (["val"]   if t in ticker_dfs_val   else [])
@@ -266,15 +275,45 @@ def prepare_experiment(
             "test_start_ts":   None if test_start is None else str(pd.Timestamp(test_start, tz="UTC")),
             **density_row,
         }
-        save_ticker_artifacts(tickers_root / t, X, y, ts, meta, label_metadata=y_meta)
+        return {
+            "ticker": t,
+            "X": X,
+            "y": y,
+            "ts": ts,
+            "meta": meta,
+            "y_meta": y_meta,
+            "valid_pos": valid_pos,
+            "close_ts": close_ts,
+            "density_row": density_row,
+        }
+
+    results_by_ticker: dict[str, dict] = {}
+    if max_workers == 1:
+        for t in tqdm.tqdm(tickers_all, desc="Preparing tickers"):
+            results_by_ticker[t] = _process_ticker(t)
+    else:
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            futures = {ex.submit(_process_ticker, t): t for t in tickers_all}
+            for fut in tqdm.tqdm(as_completed(futures), total=len(futures), desc="Preparing tickers"):
+                t = futures[fut]
+                results_by_ticker[t] = fut.result()
+
+    for t in tickers_all:
+        res = results_by_ticker[t]
+        valid_pos_by_ticker[t] = res["valid_pos"]
+        close_ts_by_ticker[t] = res["close_ts"]
+        density_rows.append(res["density_row"])
+        save_ticker_artifacts(tickers_root / t, res["X"], res["y"], res["ts"], res["meta"], label_metadata=res["y_meta"])
 
     (exp_dir / "density_summary.json").write_text(
         json.dumps(density_rows, indent=2, default=json_default)
     )
+    stage_timings["process_tickers_sec"] = float(time.perf_counter() - t0)
 
     # ------------------------------------------------------------------
     # 4. Build and save train/val/test index arrays  (tid, position)
     # ------------------------------------------------------------------
+    t0 = time.perf_counter()
     leakage_rows: List[dict] = []
 
     def _build_index(tickers: List[str], split: str) -> np.ndarray:
@@ -345,11 +384,16 @@ def prepare_experiment(
     (exp_dir / "leakage_report.json").write_text(
         json.dumps(leakage_rows, indent=2, default=json_default)
     )
+    stage_timings["build_indices_and_reports_sec"] = float(time.perf_counter() - t0)
+    stage_timings["total_prepare_sec"] = float(time.perf_counter() - t0_total)
+    stage_timings["num_workers"] = int(max_workers)
+    (exp_dir / "stage_timing.json").write_text(json.dumps(stage_timings, indent=2, default=json_default))
 
     print(f"\nPrepared experiment → {exp_dir}")
     print(f"  train : {len(index_train)} samples")
     print(f"  val   : {len(index_val)} samples")
     print(f"  test  : {len(index_test)} samples")
+    print(f"  prepare timing (sec): {stage_timings}")
 
     return PreparedExperimentManifest(
         exp_dir=exp_dir,

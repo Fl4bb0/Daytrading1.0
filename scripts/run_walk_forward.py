@@ -35,6 +35,7 @@ def main() -> None:
 
     pipeline_cfg, cfg_path = load_pipeline_config(args.config)
     walk_cfg = pipeline_cfg.get("walk_forward", {})
+    prepare_cfg = pipeline_cfg.get("prepare", {})
     if not bool(walk_cfg.get("enabled", False)):
         raise SystemExit("walk_forward.enabled must be true to run scripts/run_walk_forward.py")
 
@@ -111,6 +112,7 @@ def main() -> None:
             ticker_dfs_val=val_dfs,
             ticker_dfs_test=test_dfs,
             experiment_id=fold.fold_id,
+            num_workers=int(prepare_cfg.get("num_workers", 1)),
         )
         fold_dir = prepared.exp_dir
         (fold_dir / "walk_forward_fold.json").write_text(

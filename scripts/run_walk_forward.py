@@ -86,7 +86,7 @@ def main() -> None:
                 }
             )
             print("  Skipping fold: empty train/val/test universe after eligibility filtering.")
-            _write_manifest(manifest_path, cfg_path, run_id, folds, completed_rows, skipped_rows)
+            _write_manifest(manifest_path, cfg_path, run_id, folds, completed_rows, skipped_rows, pipeline_cfg)
             continue
 
         sampler, fe, labeler, exp_cfg = build_default_components(
@@ -154,7 +154,7 @@ def main() -> None:
                 **return_stats,
             }
         )
-        _write_manifest(manifest_path, cfg_path, run_id, folds, completed_rows, skipped_rows)
+        _write_manifest(manifest_path, cfg_path, run_id, folds, completed_rows, skipped_rows, pipeline_cfg)
 
     pd.DataFrame(eligibility_rows).to_csv(run_root / "fold_ticker_eligibility.csv", index=False)
 
@@ -181,6 +181,7 @@ def main() -> None:
         folds,
         completed_rows,
         skipped_rows,
+        pipeline_cfg,
         aggregate_dir=aggregate_path,
     )
     (prepared_root / "last_walk_forward.txt").write_text(str(run_root))
@@ -191,15 +192,7 @@ def main() -> None:
 
 
 def _auto_run_id(pipeline_cfg: dict) -> str:
-    payload = {
-        "data": pipeline_cfg.get("data", {}),
-        "prepare": pipeline_cfg.get("prepare", {}),
-        "train": pipeline_cfg.get("train", {}),
-        "predict": pipeline_cfg.get("predict", {}),
-        "meta": pipeline_cfg.get("meta", {}),
-        "ensemble": pipeline_cfg.get("ensemble", {}),
-        "walk_forward": pipeline_cfg.get("walk_forward", {}),
-    }
+    payload = _config_signature(pipeline_cfg)
     digest = hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:12]
     return f"wf_{digest}"
 
@@ -211,6 +204,7 @@ def _write_manifest(
     folds,
     completed_rows: list[dict],
     skipped_rows: list[dict],
+    pipeline_cfg: dict,
     *,
     aggregate_dir: Path | None = None,
 ) -> None:
@@ -224,8 +218,22 @@ def _write_manifest(
         "folds": [describe_fold(fold) for fold in folds],
         "completed": completed_rows,
         "skipped": skipped_rows,
+        "config_signature": _config_signature(pipeline_cfg),
     }
     manifest_path.write_text(json.dumps(payload, indent=2))
+
+
+def _config_signature(pipeline_cfg: dict) -> dict:
+    return {
+        "data": pipeline_cfg.get("data", {}),
+        "prepare": pipeline_cfg.get("prepare", {}),
+        "train": pipeline_cfg.get("train", {}),
+        "predict": pipeline_cfg.get("predict", {}),
+        "meta": pipeline_cfg.get("meta", {}),
+        "ensemble": pipeline_cfg.get("ensemble", {}),
+        "walk_forward": pipeline_cfg.get("walk_forward", {}),
+        "trading": pipeline_cfg.get("trading", {}),
+    }
 
 
 if __name__ == "__main__":

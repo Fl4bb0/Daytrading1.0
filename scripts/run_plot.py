@@ -819,6 +819,11 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Generate evaluation figures from run_predict.py CSVs.")
     parser.add_argument("--config", default="pipeline.toml", help="Pipeline TOML config path.")
+    parser.add_argument(
+        "--eval-dir",
+        default="",
+        help="Optional explicit evaluation directory. Overrides auto-detection.",
+    )
     args = parser.parse_args()
 
     cfg, cfg_path = load_pipeline_config(args.config)
@@ -834,25 +839,54 @@ def main() -> None:
         model_name = str(plot_cfg.get("model", predict_cfg.get("model", "conv1d")))
     split = str(plot_cfg.get("split", predict_cfg.get("split", "test")))
     exp_id = str(plot_cfg.get("experiment_id", "last"))
+    walk_cfg = cfg.get("walk_forward", {})
 
     prepared_root = Path(paths_cfg.get("prepared_root", str(_PREPARED_ROOT)))
 
     if show:
         matplotlib.use("TkAgg")
 
-    if exp_id == "last":
-        last_file = prepared_root / "last_experiment.txt"
-        if not last_file.exists():
-            raise SystemExit(f"No last_experiment.txt found in {prepared_root}.")
-        exp_id = last_file.read_text().strip()
-
-    eval_dir = prepared_root / exp_id / "eval" / f"{model_name}_{split}"
-    print(f"Auto-detected eval dir: {eval_dir}")
+    eval_dir_arg = str(args.eval_dir).strip()
+    if eval_dir_arg:
+        eval_dir = Path(eval_dir_arg)
+        print(f"Using explicit eval dir: {eval_dir}")
+    elif bool(walk_cfg.get("enabled", False)):
+        last_wf_file = prepared_root / "last_walk_forward.txt"
+        if not last_wf_file.exists():
+            raise SystemExit(
+                f"walk_forward.enabled=true but no {last_wf_file.name} found in {prepared_root}. "
+                "Run scripts/run_walk_forward.py first or pass --eval-dir."
+            )
+        run_root = Path(last_wf_file.read_text().strip())
+        manifest_path = run_root / "walk_forward_manifest.json"
+        if not manifest_path.exists():
+            raise SystemExit(
+                f"Walk-forward manifest not found: {manifest_path}. "
+                "Run scripts/run_walk_forward.py first or pass --eval-dir."
+            )
+        import json
+        manifest = json.loads(manifest_path.read_text())
+        aggregate_dir = str(manifest.get("aggregate_dir", "")).strip()
+        if not aggregate_dir:
+            raise SystemExit(
+                f"No aggregate_dir in {manifest_path}. "
+                "Run scripts/run_walk_forward.py first or pass --eval-dir."
+            )
+        eval_dir = Path(aggregate_dir)
+        print(f"Auto-detected walk-forward eval dir: {eval_dir}")
+    else:
+        if exp_id == "last":
+            last_file = prepared_root / "last_experiment.txt"
+            if not last_file.exists():
+                raise SystemExit(f"No last_experiment.txt found in {prepared_root}.")
+            exp_id = last_file.read_text().strip()
+        eval_dir = prepared_root / exp_id / "eval" / f"{model_name}_{split}"
+        print(f"Auto-detected eval dir: {eval_dir}")
 
     if not eval_dir.exists():
         raise SystemExit(f"Eval directory not found: {eval_dir}. Run run_predict.py first.")
 
-    out_dir = Path(plot_cfg["out_dir"]) if plot_cfg.get("out_dir") else eval_dir / "figures"
+    out_dir = eval_dir / "figures"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Eval dir : {eval_dir}")

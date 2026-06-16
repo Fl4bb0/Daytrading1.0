@@ -6,6 +6,8 @@ src/daytrading.egg-info/dependency_links.txt
 src/daytrading.egg-info/requires.txt
 src/daytrading.egg-info/top_level.txt
 src/kvant/__init__.py
+src/kvant/pipeline_runtime.py
+src/kvant/walk_forward_reporting.py
 src/kvant/analysis/__init__.py
 src/kvant/analysis/compare.py
 src/kvant/analysis/loader.py
@@ -47,6 +49,7 @@ src/kvant/models/base.py
 src/kvant/models/conv1d.py
 src/kvant/models/conv3d.py
 src/kvant/models/ensemble.py
+src/kvant/models/logreg.py
 src/kvant/models/resnls.py
 src/kvant/models/shallow_cnn.py
 src/kvant/models/tsb.py
@@ -63,14 +66,17 @@ src/kvant/training/__init__.py
 src/kvant/training/metrics.py
 src/kvant/training/predict.py
 src/kvant/training/pytorch_trainer.py
+src/kvant/training/sklearn_trainer.py
 src/kvant/training/trainer.py
 src/kvant/utils/__init__.py
 src/kvant/utils/device.py
 src/kvant/utils/ensemble.py
 src/kvant/utils/index_utils.py
 src/kvant/utils/pipeline_config.py
+src/kvant/utils/prepare_pipeline.py
 src/kvant/utils/split_loader.py
 src/kvant/utils/time_utils.py
+src/kvant/utils/walk_forward.py
 tests/test_alpha_vantage_retriever.py
 tests/test_benchmarking.py
 tests/test_daily_sync.py
@@ -81,7 +87,9 @@ tests/test_feature_engineering.py
 tests/test_hybrid_retriever.py
 tests/test_import_month.py
 tests/test_kdata_store_target_days.py
+tests/test_logreg_model.py
 tests/test_meta_features.py
 tests/test_month_store.py
 tests/test_pipeline_config.py
 tests/test_triple_barrier_labeling.py
+tests/test_walk_forward.py

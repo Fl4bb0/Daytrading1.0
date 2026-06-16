@@ -43,6 +43,8 @@ uv run --env-file .env.run scripts/run_train.py
 uv run --env-file .env.run scripts/run_benchmark.py
 uv run --env-file .env.run scripts/run_predict.py
 uv run --env-file .env.run scripts/run_plot.py
+uv run --env-file .env.run scripts/run_walk_forward.py
+uv run --env-file .env.run scripts/run_walk_forward_compare.py
 
 To use a different config file:
 
@@ -56,6 +58,13 @@ The benchmark suite compares random trading, a one-layer CNN baseline, the
 configured single model with meta layer, and the council/ensemble with meta
 layer. It writes per-strategy evaluation CSVs, `summary.csv`,
 `random_runs.csv`, `equity_comparison.csv`, and benchmark figures.
+
+Walk-forward comparison outputs are written to:
+
+prepared/walkforward/comparisons/latest/
+
+They include `run_comparison_summary.csv`, `fold_comparison.csv`, and
+comparison plots for net return, accuracy, stability, and fold distributions.
 
 
 `run_daily_update.py` requires `ALPHAVANTAGE_API_KEY` in your env file.

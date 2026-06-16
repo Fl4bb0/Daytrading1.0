@@ -30,6 +30,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import torch
 import torch.nn as nn
+from sklearn.metrics import f1_score
 from torch.utils.data import DataLoader, TensorDataset
 from typing import runtime_checkable, Protocol
 
@@ -73,7 +74,10 @@ def _to_loader(
 def _class_weights(y: np.ndarray, n_classes: int) -> torch.Tensor:
     counts = np.bincount(y, minlength=n_classes).astype(np.float64)
     counts = np.where(counts == 0, 1.0, counts)
-    w = counts.sum() / counts
+    # sqrt-dampened inverse frequency: protects rare classes without letting
+    # extreme rarity (e.g. HOLD at <1% of labels) dominate the loss and flood
+    # predictions toward that class.
+    w = np.sqrt(counts.sum() / counts)
     w = (w / w.mean()).astype(np.float32)
     return torch.tensor(w)
 
@@ -148,6 +152,11 @@ class PytorchTrainer(Trainer):
         optimizer = torch.optim.Adam(
             net.parameters(), lr=cfg.learning_rate, weight_decay=1e-5
         )
+        scheduler = None
+        if getattr(cfg, "lr_schedule", "none") == "cosine":
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer, T_max=cfg.epochs, eta_min=cfg.learning_rate * 0.01
+            )
 
         history: Dict[str, List[float]] = defaultdict(list)
         best_metric   = -float("inf")
@@ -160,15 +169,16 @@ class PytorchTrainer(Trainer):
             train_loss = self._train_epoch(net, train_loader, optimizer, criterion)
             history["train_loss"].append(train_loss)
 
-            val_acc = 0.0
+            val_f1 = 0.0
             if val_loader is not None:
-                val_acc = self._accuracy(net, val_loader)
-                history["val_accuracy"].append(val_acc)
+                val_f1 = self._macro_f1(net, val_loader)
+                history["val_macro_f1"].append(val_f1)
 
             elapsed = time.time() - t0
 
-            # Checkpoint on best val_accuracy (or train_loss if no val)
-            metric = val_acc if val_loader is not None else -train_loss
+            # Checkpoint on best macro-F1 (or train_loss if no val).
+            # Accuracy is misleading with imbalanced HOLD/BUY/SHORT — F1 is not.
+            metric = val_f1 if val_loader is not None else -train_loss
             if metric > best_metric:
                 best_metric = metric
                 best_epoch  = ep
@@ -179,15 +189,18 @@ class PytorchTrainer(Trainer):
 
             print(
                 f"epoch={ep:04d}  loss={train_loss:.4f}  "
-                f"val_acc={val_acc:.4f}  best={best_metric:.4f}  "
+                f"val_f1={val_f1:.4f}  best={best_metric:.4f}  "
                 f"[{elapsed:.1f}s]"
             )
 
             if self.logger is not None:
                 self.logger.log(
-                    {"train/loss": train_loss, "val/accuracy": val_acc},
+                    {"train/loss": train_loss, "val/macro_f1": val_f1},
                     step=ep,
                 )
+
+            if scheduler is not None:
+                scheduler.step()
 
             if patience_left <= 0:
                 print(f"Early stopping at epoch {ep} (best epoch {best_epoch})")
@@ -200,9 +213,9 @@ class PytorchTrainer(Trainer):
                 self.model.save(Path(cfg.checkpoint_dir))
 
         return {
-            "train_loss":       history["train_loss"],
-            "val_accuracy":     history.get("val_accuracy", []),
-            "best_val_accuracy": best_metric if val_loader is not None else None,
+            "train_loss":        history["train_loss"],
+            "val_macro_f1":      history.get("val_macro_f1", []),
+            "best_val_macro_f1": best_metric if val_loader is not None else None,
             "best_epoch":        best_epoch,
         }
 
@@ -235,17 +248,20 @@ class PytorchTrainer(Trainer):
             optimizer.zero_grad(set_to_none=True)
             loss = criterion(net(x), y)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=1.0)
             optimizer.step()
             total_loss += float(loss.item())
             n_batches  += 1
         return total_loss / max(n_batches, 1)
 
     @torch.no_grad()
-    def _accuracy(self, net: nn.Module, loader: DataLoader) -> float:
+    def _macro_f1(self, net: nn.Module, loader: DataLoader) -> float:
         net.eval()
-        n_correct, n_total = 0, 0
+        all_pred, all_true = [], []
         for batch in loader:
             x, y = batch[0].to(self._device), batch[1].to(self._device)
-            n_correct += int((net(x).argmax(dim=1) == y).sum().item())
-            n_total   += int(y.numel())
-        return float(n_correct / max(n_total, 1))
+            all_pred.append(net(x).argmax(dim=1).cpu().numpy())
+            all_true.append(y.cpu().numpy())
+        y_pred = np.concatenate(all_pred)
+        y_true = np.concatenate(all_true)
+        return float(f1_score(y_true, y_pred, average="macro", zero_division=0))

@@ -22,6 +22,7 @@ class TrainConfig:
     learning_rate: float = 1e-3
     early_stopping_patience: int = 10
     checkpoint_dir: Optional[Path] = None
+    lr_schedule: str = "cosine"  # "none" | "cosine"
     extra: Dict[str, Any] = field(default_factory=dict)
 
 

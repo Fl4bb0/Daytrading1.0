@@ -38,7 +38,9 @@ def build_walk_forward_folds(
     val_span_months = int(walk_cfg.get("val_span_months", 1))
     test_span_months = int(walk_cfg.get("test_span_months", 1))
     step_span_months = int(walk_cfg.get("step_span_months", test_span_months))
-    gap_days = int(walk_cfg.get("gap_days", 0))
+    # Default 1-day gap prevents label look-ahead leakage across split boundaries
+    # (triple-barrier labels look forward up to width_minutes; 1 day is a safe purge buffer)
+    gap_days = int(walk_cfg.get("gap_days", 1))
     max_train_span_months = walk_cfg.get("max_train_span_months")
     max_train_span_months = None if max_train_span_months in (None, "", 0) else int(max_train_span_months)
 
@@ -147,7 +149,7 @@ def _infer_available_month_range(ticker_dfs: Dict[str, pd.DataFrame]) -> Tuple[p
         ends.append(last + pd.DateOffset(months=1))
 
     if not starts or not ends:
-        raise SystemExit("No timestamped data available to build walk-forward folds.")
+        raise ValueError("No timestamped data available to build walk-forward folds.")
     return min(starts), max(ends)
 
 

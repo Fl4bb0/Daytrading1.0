@@ -130,13 +130,24 @@ class IntradayTA10Features(BaseDFEngineer):
         loss = (-delta).clip(lower=0.0)
         avg_gain = gain.ewm(alpha=1.0 / period, adjust=False, min_periods=period).mean()
         avg_loss = loss.ewm(alpha=1.0 / period, adjust=False, min_periods=period).mean()
-        rs = avg_gain / avg_loss
-        return 100.0 - (100.0 / (1.0 + rs))
+        rs = avg_gain / avg_loss.replace(0.0, np.nan)
+        rsi = 100.0 - (100.0 / (1.0 + rs))
+        return rsi.fillna(100.0)  # avg_loss == 0 → all gains → RSI = 100
 
     def _transform_ohlc(self, df: pd.DataFrame) -> pd.DataFrame:
-        # Extracts and returns OHLC (Open, High, Low, Close) columns as float.
-        ohlc = df.loc[:, ["open", "high", "low", "close"]].astype(float)
-        return ohlc
+        # Log-return-based OHLC features — stationary across time, no price-level drift.
+        close = df["close"].astype(float)
+        open_ = df["open"].astype(float)
+        high  = df["high"].astype(float)
+        low   = df["low"].astype(float)
+        safe_open = open_.replace(0.0, np.nan)
+        return pd.DataFrame({
+            "close_ret": np.log(close / close.shift(1)),
+            "hl_range":  np.log(high / low.replace(0.0, np.nan)),
+            "co_ret":    np.log(close / safe_open),
+            "ho_ret":    np.log(high  / safe_open),
+            "lo_ret":    np.log(low   / safe_open),
+        }, index=df.index)
 
     def _transform_volume(self, df: pd.DataFrame) -> pd.Series:
         # Transforms the volume column based on the specified output format (log1p or raw).
@@ -149,16 +160,19 @@ class IntradayTA10Features(BaseDFEngineer):
             raise ValueError("volume_output must be 'raw' or 'log1p'")
 
     def _transform_ema(self, close: pd.Series) -> pd.DataFrame:
-        # Computes Exponential Moving Averages (EMA) and EWM standard deviations for given periods.
+        # Price deviation from EMA (close/ema - 1) and normalised EWM std — both stationary.
         ema_features = {}
         for p in (5, 10, 15, 20, 50):
             n = self._scale(p)
-            ema_features[f"ema_close_{p}b"] = close.ewm(span=n, adjust=False, min_periods=n).mean()
-            ema_features[f"ewmstd_close_{p}b"] = close.ewm(span=n, adjust=False, min_periods=n).std(bias=False)
+            ema = close.ewm(span=n, adjust=False, min_periods=n).mean()
+            ema_std = close.ewm(span=n, adjust=False, min_periods=n).std(bias=False)
+            safe_ema = ema.replace(0.0, np.nan)
+            ema_features[f"ema_dev_{p}b"] = close / safe_ema - 1.0
+            ema_features[f"ewmstd_{p}b"] = ema_std / safe_ema
         return pd.DataFrame(ema_features)
 
     def _transform_macd(self, close: pd.Series) -> pd.DataFrame:
-        # Calculates MACD (Moving Average Convergence Divergence) and related features.
+        # MACD values normalised by close price so they are scale-independent.
         n_fast = self._scale(12)
         n_slow = self._scale(26)
         n_signal = self._scale(9)
@@ -166,31 +180,80 @@ class IntradayTA10Features(BaseDFEngineer):
         ema_slow = close.ewm(span=n_slow, adjust=False, min_periods=n_slow).mean()
         macd = ema_fast - ema_slow
         macd_signal = macd.ewm(span=n_signal, adjust=False, min_periods=n_signal).mean()
+        safe_close = close.replace(0.0, np.nan)
         return pd.DataFrame({
-            "macd": macd,
-            "macd_signal": macd_signal,
-            "macd_hist": macd - macd_signal,
+            "macd":        macd / safe_close,
+            "macd_signal": macd_signal / safe_close,
+            "macd_hist":   (macd - macd_signal) / safe_close,
         })
 
     def _transform_rsi(self, close: pd.Series) -> pd.DataFrame:
-        # Computes Relative Strength Index (RSI) for specified periods.
         rsi_features = {}
         for p in (6, 10, 14):
             n = self._scale(p)
             rsi_features[f"rsi_{p}b"] = self._rsi_wilder(close, n)
         return pd.DataFrame(rsi_features)
 
-    def _transform_df(self, df: pd.DataFrame) -> pd.DataFrame:
-        # Main transformation pipeline combining OHLC, volume, EMA, MACD, and RSI features.
-        df = ensure_utc_sorted_index(df)
-        ohlc = self._transform_ohlc(df)
-        volume = self._transform_volume(df)
-        ema = self._transform_ema(ohlc["close"])
-        macd = self._transform_macd(ohlc["close"])
-        rsi = self._transform_rsi(ohlc["close"])
+    def _transform_vwap(self, df: pd.DataFrame) -> pd.DataFrame:
+        # Cumulative VWAP reset each calendar day, plus close-to-VWAP deviation.
+        close = df["close"].astype(float)
+        high  = df["high"].astype(float)
+        low   = df["low"].astype(float)
+        vol   = df["volume"].astype(float).clip(lower=0.0)
 
-        features = pd.concat([ohlc, volume.rename("volume"), ema, macd, rsi], axis=1)
-        return features
+        typical_price = (high + low + close) / 3.0
+        day_key = df.index.floor("D")
+
+        cum_tp_vol = (typical_price * vol).groupby(day_key).cumsum()
+        cum_vol    = vol.groupby(day_key).cumsum()
+
+        vwap     = cum_tp_vol / cum_vol.replace(0.0, np.nan)
+        vwap_dev = (close - vwap) / vwap.replace(0.0, np.nan)
+        return pd.DataFrame({"vwap": vwap, "vwap_dev": vwap_dev}, index=df.index)
+
+    def _transform_vol_regime(self, close: pd.Series) -> pd.DataFrame:
+        # Rolling realized-vol ratio: short/long window flags vol expansion/contraction.
+        n_short = self._scale(5)
+        n_long  = self._scale(20)
+        log_ret = np.log(close / close.shift(1))
+
+        vol_short = log_ret.rolling(n_short, min_periods=2).std()
+        vol_long  = log_ret.rolling(n_long,  min_periods=5).std()
+        vol_ratio = vol_short / vol_long.replace(0.0, np.nan)
+
+        return pd.DataFrame(
+            {"realized_vol_20b": vol_long, "vol_regime_ratio": vol_ratio},
+            index=close.index,
+        )
+
+    def _transform_time_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        # Sin/cos encoding of intraday position within the NYSE session (14:30–21:00 UTC).
+        minutes_since_open = np.clip(df.index.hour * 60 + df.index.minute - 14 * 60 - 30, 0, 390)
+        frac = minutes_since_open / 390.0
+        return pd.DataFrame(
+            {
+                "time_of_day_sin": np.sin(2 * np.pi * frac),
+                "time_of_day_cos": np.cos(2 * np.pi * frac),
+            },
+            index=df.index,
+        )
+
+    def _transform_df(self, df: pd.DataFrame) -> pd.DataFrame:
+        df = ensure_utc_sorted_index(df)
+        close  = df["close"].astype(float)
+        ohlc   = self._transform_ohlc(df)
+        volume = self._transform_volume(df)
+        ema    = self._transform_ema(close)
+        macd   = self._transform_macd(close)
+        rsi    = self._transform_rsi(close)
+        vwap   = self._transform_vwap(df)
+        regime = self._transform_vol_regime(close)
+
+        parts = [ohlc, volume.rename("volume"), ema, macd, rsi, vwap, regime]
+        if self.include_time_features:
+            parts.append(self._transform_time_features(df))
+
+        return pd.concat(parts, axis=1)
 
 
 # ---------------------------------------------------------------------

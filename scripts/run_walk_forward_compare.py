@@ -114,6 +114,9 @@ def _build_run_summary(runs: list[dict[str, Any]]) -> pd.DataFrame:
             "train.learning_rate": config_sig.get("train", {}).get("learning_rate", ""),
             "predict.top_k_per_timestamp": config_sig.get("predict", {}).get("top_k_per_timestamp", ""),
             "predict.ticker_cooldown_minutes": config_sig.get("predict", {}).get("ticker_cooldown_minutes", ""),
+            "predict.max_concurrent_positions_per_ticker": config_sig.get("predict", {}).get(
+                "max_concurrent_positions_per_ticker", ""
+            ),
             "meta.enabled": config_sig.get("meta", {}).get("enabled", ""),
         }
         rows.append(row)

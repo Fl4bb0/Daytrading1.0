@@ -300,6 +300,20 @@ class PipelineConfigTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 load_pipeline_config(cfg_path)
 
+    def test_validation_rejects_invalid_max_concurrent_positions_per_ticker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_path = Path(tmpdir) / "pipeline.toml"
+            cfg_path.write_text(
+                "\n".join(
+                    [
+                        "[predict]",
+                        "max_concurrent_positions_per_ticker = -1",
+                    ]
+                )
+            )
+            with self.assertRaises(SystemExit):
+                load_pipeline_config(cfg_path)
+
     def test_validation_accepts_non_negative_brokerage_fee(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg_path = Path(tmpdir) / "pipeline.toml"

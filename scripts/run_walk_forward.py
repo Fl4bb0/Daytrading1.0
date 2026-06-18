@@ -174,6 +174,11 @@ def main() -> None:
         if predict_cfg.get("top_k_per_timestamp") in (None, "", 0)
         else int(predict_cfg.get("top_k_per_timestamp")),
         ticker_cooldown_minutes=int(predict_cfg.get("ticker_cooldown_minutes", 0)),
+        max_concurrent_positions_per_ticker=(
+            None
+            if predict_cfg.get("max_concurrent_positions_per_ticker") in (None, "", 0)
+            else int(predict_cfg.get("max_concurrent_positions_per_ticker"))
+        ),
     )
 
     _write_manifest(

@@ -194,6 +194,38 @@ class IntradayTA10Features(BaseDFEngineer):
             rsi_features[f"rsi_{p}b"] = self._rsi_wilder(close, n)
         return pd.DataFrame(rsi_features)
 
+    def _transform_atr(self, df: pd.DataFrame) -> pd.DataFrame:
+        # Wilder's ATR normalised by close — volatility regime feature distinct
+        # from realized_vol since it uses gap/range, not just close-to-close.
+        high  = df["high"].astype(float)
+        low   = df["low"].astype(float)
+        close = df["close"].astype(float)
+        prev_close = close.shift(1)
+        true_range = pd.concat(
+            [high - low, (high - prev_close).abs(), (low - prev_close).abs()],
+            axis=1,
+        ).max(axis=1)
+        n = self._scale(14)
+        atr = true_range.ewm(alpha=1.0 / n, adjust=False, min_periods=n).mean()
+        safe_close = close.replace(0.0, np.nan)
+        return pd.DataFrame({"atr_14b": atr / safe_close}, index=df.index)
+
+    def _transform_bollinger(self, close: pd.Series) -> pd.DataFrame:
+        # %B positions price within its recent distribution; bandwidth flags
+        # volatility expansion/contraction independently of ATR.
+        n = self._scale(20)
+        sma = close.rolling(n, min_periods=n).mean()
+        std = close.rolling(n, min_periods=n).std(ddof=0)
+        upper = sma + 2.0 * std
+        lower = sma - 2.0 * std
+        band_range = (upper - lower).replace(0.0, np.nan)
+        bb_pct = (close - lower) / band_range
+        bb_bandwidth = band_range / sma.replace(0.0, np.nan)
+        return pd.DataFrame(
+            {"bb_pct_20b": bb_pct, "bb_bandwidth_20b": bb_bandwidth},
+            index=close.index,
+        )
+
     def _transform_vwap(self, df: pd.DataFrame) -> pd.DataFrame:
         # Cumulative VWAP reset each calendar day, plus close-to-VWAP deviation.
         close = df["close"].astype(float)
@@ -246,10 +278,12 @@ class IntradayTA10Features(BaseDFEngineer):
         ema    = self._transform_ema(close)
         macd   = self._transform_macd(close)
         rsi    = self._transform_rsi(close)
+        atr    = self._transform_atr(df)
+        boll   = self._transform_bollinger(close)
         vwap   = self._transform_vwap(df)
         regime = self._transform_vol_regime(close)
 
-        parts = [ohlc, volume.rename("volume"), ema, macd, rsi, vwap, regime]
+        parts = [ohlc, volume.rename("volume"), ema, macd, rsi, atr, boll, vwap, regime]
         if self.include_time_features:
             parts.append(self._transform_time_features(df))
 

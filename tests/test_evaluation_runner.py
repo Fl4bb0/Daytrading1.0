@@ -271,6 +271,54 @@ class ExecutionPriorityTests(unittest.TestCase):
             ["14:30:00", "15:35:00"],
         )
 
+    def test_max_concurrent_positions_per_ticker_blocks_overlapping_entries(self) -> None:
+        pred_df = pd.DataFrame(
+            {
+                "timestamp": pd.to_datetime(
+                    [
+                        "2025-01-02 14:30:00",
+                        "2025-01-02 14:35:00",
+                        "2025-01-02 14:50:00",
+                    ]
+                ),
+                "ticker": ["AAA", "AAA", "AAA"],
+                "y_pred": [2, 2, 2],
+                "pnl_fraction": [0.01, 0.02, 0.03],
+                "bar_close_time": pd.to_datetime(
+                    [
+                        "2025-01-02 14:45:00",
+                        "2025-01-02 14:55:00",
+                        "2025-01-02 15:00:00",
+                    ]
+                ),
+                "prob_BUY": [0.60, 0.70, 0.80],
+                "prob_SHORT": [0.01, 0.01, 0.01],
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_path = Path(tmpdir) / "equity_curve.csv"
+            _save_equity_curve(
+                pred_df,
+                out_path,
+                fee=0.0,
+                n_pools=3,
+                execution_priority="first_seen",
+                max_concurrent_positions_per_ticker=1,
+            )
+            eq_df = pd.read_csv(out_path)
+
+        # The second entry (14:35) overlaps with the still-open first
+        # position (14:30-14:45) in the same ticker, so it is skipped even
+        # though a free pool exists. The third entry (14:50) is allowed
+        # because the first position has already exited by then.
+        eq_df = eq_df.sort_values("entry_timestamp").reset_index(drop=True)
+        self.assertEqual(
+            list(pd.to_datetime(eq_df["entry_timestamp"]).dt.strftime("%H:%M:%S")),
+            ["14:30:00", "14:35:00", "14:50:00"],
+        )
+        self.assertEqual(list(eq_df["skipped"]), [False, True, False])
+
     def test_meta_score_thresholds_demote_short_and_buy_independently(self) -> None:
         y_pred = pd.Series([0, 0, 2, 2], dtype="int64").to_numpy()
         meta_score = pd.Series([0.03, 0.01, 0.015, 0.005], dtype="float64").to_numpy()

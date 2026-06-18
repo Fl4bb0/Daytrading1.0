@@ -107,7 +107,9 @@ class TSBModel(KvantModel):
     ) -> Dict[str, Any]:
         from kvant.training.pytorch_trainer import PytorchTrainer
         from kvant.training.trainer import TrainConfig
-        cfg = kwargs.pop("cfg", TrainConfig(**kwargs))
+        cfg = kwargs.pop("cfg", None)
+        if cfg is None:
+            cfg = TrainConfig(**kwargs)
         return PytorchTrainer(self, cfg).fit(X_train, y_train, X_val, y_val)
 
     def predict(self, X: np.ndarray) -> np.ndarray:

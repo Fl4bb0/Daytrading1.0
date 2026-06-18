@@ -154,6 +154,8 @@ def run_benchmark(
     top_k_raw = predict_cfg.get("top_k_per_timestamp")
     top_k_per_timestamp = None if top_k_raw in (None, "", 0) else int(top_k_raw)
     ticker_cooldown_minutes = int(predict_cfg.get("ticker_cooldown_minutes", 0))
+    max_concurrent_raw = predict_cfg.get("max_concurrent_positions_per_ticker")
+    max_concurrent_positions_per_ticker = None if max_concurrent_raw in (None, "", 0) else int(max_concurrent_raw)
     execution_priority = str(predict_cfg.get("execution_priority", "model_confidence"))
 
     meta_train_split = str(meta_cfg.get("train_split", "val"))
@@ -239,6 +241,7 @@ def run_benchmark(
         execution_priority=execution_priority,
         top_k_per_timestamp=top_k_per_timestamp,
         ticker_cooldown_minutes=ticker_cooldown_minutes,
+        max_concurrent_positions_per_ticker=max_concurrent_positions_per_ticker,
         model=council_model,
         meta_model=council_meta,
         meta_model_path=council_meta_path,
@@ -294,6 +297,7 @@ def run_benchmark(
         execution_priority=execution_priority,
         top_k_per_timestamp=top_k_per_timestamp,
         ticker_cooldown_minutes=ticker_cooldown_minutes,
+        max_concurrent_positions_per_ticker=max_concurrent_positions_per_ticker,
         model=single_model,
         meta_model=single_meta,
         meta_model_path=single_meta_path,
@@ -343,6 +347,7 @@ def run_benchmark(
         execution_priority=_non_meta_execution_priority(execution_priority),
         top_k_per_timestamp=top_k_per_timestamp,
         ticker_cooldown_minutes=ticker_cooldown_minutes,
+        max_concurrent_positions_per_ticker=max_concurrent_positions_per_ticker,
         model=shallow_model,
     )
     runs.append(_EvalRun("one_layer_cnn", shallow_dir, "one_layer_cnn"))
@@ -376,6 +381,7 @@ def run_benchmark(
             execution_priority="model_confidence",
             top_k_per_timestamp=top_k_per_timestamp,
             ticker_cooldown_minutes=ticker_cooldown_minutes,
+        max_concurrent_positions_per_ticker=max_concurrent_positions_per_ticker,
             model=random_model,
         )
         runs.append(_EvalRun(f"random_seed_{i:03d}", random_dir, "random", seed=seed))
@@ -707,6 +713,7 @@ def _summarize_eval_run(run: _EvalRun) -> dict[str, Any]:
             "execution_priority",
             "top_k_per_timestamp",
             "ticker_cooldown_minutes",
+            "max_concurrent_positions_per_ticker",
             "n_thresholded_to_hold",
             "n_meta_thresholded_to_hold",
             "allow_short",

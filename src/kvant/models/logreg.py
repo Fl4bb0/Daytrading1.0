@@ -67,7 +67,9 @@ class LogisticRegressionModel(KvantModel):
         from kvant.training.sklearn_trainer import SklearnTrainer
         from kvant.training.trainer import TrainConfig
 
-        cfg = kwargs.pop("cfg", TrainConfig(**kwargs))
+        cfg = kwargs.pop("cfg", None)
+        if cfg is None:
+            cfg = TrainConfig(**kwargs)
         return SklearnTrainer(self, cfg).fit(X_train, y_train, X_val, y_val)
 
     def predict(self, X: np.ndarray) -> np.ndarray:

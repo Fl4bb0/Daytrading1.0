@@ -301,6 +301,8 @@ def predict_experiment(exp_dir: Path, pipeline_cfg: dict) -> Path:
     top_k_raw = predict_cfg.get("top_k_per_timestamp")
     top_k_per_timestamp = None if top_k_raw in (None, "", 0) else int(top_k_raw)
     ticker_cooldown_minutes = int(predict_cfg.get("ticker_cooldown_minutes", 0))
+    max_concurrent_raw = predict_cfg.get("max_concurrent_positions_per_ticker")
+    max_concurrent_positions_per_ticker = None if max_concurrent_raw in (None, "", 0) else int(max_concurrent_raw)
     meta_enabled = bool(meta_cfg.get("enabled", False))
     meta_train_split = str(meta_cfg.get("train_split", "val"))
     meta_shrinkage_k = float(meta_cfg.get("shrinkage_k", 10.0))
@@ -358,6 +360,7 @@ def predict_experiment(exp_dir: Path, pipeline_cfg: dict) -> Path:
         execution_priority=execution_priority,
         top_k_per_timestamp=top_k_per_timestamp,
         ticker_cooldown_minutes=ticker_cooldown_minutes,
+        max_concurrent_positions_per_ticker=max_concurrent_positions_per_ticker,
         model=runtime.model,
         meta_model=meta_model,
         meta_model_path=meta_model_path,

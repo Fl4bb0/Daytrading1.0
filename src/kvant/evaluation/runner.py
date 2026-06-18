@@ -176,6 +176,7 @@ def evaluate_experiment(
     execution_priority: str = "model_confidence",
     top_k_per_timestamp: Optional[int] = None,
     ticker_cooldown_minutes: int = 0,
+    max_concurrent_positions_per_ticker: Optional[int] = None,
     model: Optional[KvantModel] = None,
     meta_model: Optional[object] = None,
     meta_model_path: Optional[Path] = None,
@@ -211,6 +212,9 @@ def evaluate_experiment(
                  the cap.
     ticker_cooldown_minutes : Minimum wait time before the same ticker can
                  open another trade. ``0`` disables the cooldown.
+    max_concurrent_positions_per_ticker : Optional cap on how many positions
+                 in the same ticker may be open (entry to exit) at once,
+                 even across different pools. ``None`` disables the cap.
 
     Returns
     -------
@@ -231,6 +235,8 @@ def evaluate_experiment(
     ticker_cooldown_minutes = int(ticker_cooldown_minutes)
     if ticker_cooldown_minutes < 0:
         raise ValueError("ticker_cooldown_minutes must be >= 0")
+    if max_concurrent_positions_per_ticker is not None and int(max_concurrent_positions_per_ticker) <= 0:
+        raise ValueError("max_concurrent_positions_per_ticker must be > 0 when provided")
 
     model = model if model is not None else model_cls.load(model_path)
     artifacts = _build_prediction_artifacts(
@@ -367,6 +373,7 @@ def evaluate_experiment(
         execution_priority=execution_priority,
         top_k_per_timestamp=top_k_per_timestamp,
         ticker_cooldown_minutes=ticker_cooldown_minutes,
+        max_concurrent_positions_per_ticker=max_concurrent_positions_per_ticker,
     )
 
     # ------------------------------------------------------------------
@@ -439,6 +446,9 @@ def evaluate_experiment(
         "execution_priority": execution_priority,
         "top_k_per_timestamp": "" if top_k_per_timestamp is None else int(top_k_per_timestamp),
         "ticker_cooldown_minutes": ticker_cooldown_minutes,
+        "max_concurrent_positions_per_ticker": (
+            "" if max_concurrent_positions_per_ticker is None else int(max_concurrent_positions_per_ticker)
+        ),
         "n_thresholded_to_hold": n_thresholded_to_hold,
         "n_meta_thresholded_to_hold": n_meta_thresholded_to_hold,
         "n_short_blocked_by_policy": n_short_blocked_by_policy,
@@ -470,6 +480,7 @@ def _save_equity_curve(
     execution_priority: str = "model_confidence",
     top_k_per_timestamp: Optional[int] = None,
     ticker_cooldown_minutes: int = 0,
+    max_concurrent_positions_per_ticker: Optional[int] = None,
 ) -> None:
     """
     Build and save a cumulative portfolio PnL equity curve.
@@ -489,6 +500,9 @@ def _save_equity_curve(
     share the same entry timestamp, ``execution_priority`` decides which
     ones claim scarce pools first. ``top_k_per_timestamp`` and
     ``ticker_cooldown_minutes`` can further reduce execution churn.
+    ``max_concurrent_positions_per_ticker`` caps how many positions in the
+    same ticker may be open (entry to exit) at once, even across different
+    pools; ``None`` disables the cap.
     """
     if execution_priority not in _EXECUTION_PRIORITIES:
         raise ValueError(
@@ -500,6 +514,8 @@ def _save_equity_curve(
     ticker_cooldown_minutes = int(ticker_cooldown_minutes)
     if ticker_cooldown_minutes < 0:
         raise ValueError("ticker_cooldown_minutes must be >= 0")
+    if max_concurrent_positions_per_ticker is not None and int(max_concurrent_positions_per_ticker) <= 0:
+        raise ValueError("max_concurrent_positions_per_ticker must be > 0 when provided")
     round_trip_fee_pct = 2.0 * float(fee) * 100.0   # percentage points
 
     _empty_cols = [
@@ -524,6 +540,7 @@ def _save_equity_curve(
     # Simulate pool allocation
     # Each pool is "busy" until the trade's bar_close_time.
     pool_free_at: list[pd.Timestamp] = [pd.Timestamp.min] * n_pools
+    open_exit_times_by_ticker: dict[str, list[pd.Timestamp]] = {}
     rows = []
 
     for event_order, row in enumerate(candidates):
@@ -539,16 +556,28 @@ def _save_equity_curve(
         # Count how many pools are busy at this entry time
         busy = sum(1 for t in pool_free_at if t > entry_ts)
 
+        # Prune this ticker's open positions that have already exited, then
+        # check whether it's already at its concurrency cap.
+        ticker = str(row["ticker"])
+        open_exits = open_exit_times_by_ticker.setdefault(ticker, [])
+        open_exits[:] = [t for t in open_exits if t > entry_ts]
+        ticker_cap_reached = (
+            max_concurrent_positions_per_ticker is not None
+            and len(open_exits) >= int(max_concurrent_positions_per_ticker)
+        )
+
         # Try to claim a pool (pick the one that freed up earliest)
         pool_idx = None
-        for i, free_at in enumerate(pool_free_at):
-            if free_at <= entry_ts:
-                pool_idx = i
-                break
+        if not ticker_cap_reached:
+            for i, free_at in enumerate(pool_free_at):
+                if free_at <= entry_ts:
+                    pool_idx = i
+                    break
 
         skipped = pool_idx is None
-        if not skipped and exit_ts is not None and not pd.isna(exit_ts):
+        if not skipped:
             pool_free_at[pool_idx] = exit_ts
+            open_exits.append(exit_ts)
 
         portfolio_pnl = 0.0 if skipped else gross_pct / n_pools
         portfolio_pnl_net = 0.0 if skipped else (gross_pct - round_trip_fee_pct) / n_pools

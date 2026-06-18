@@ -70,6 +70,7 @@ allow_short = false # option to go long only
 execution_priority = "meta_score" # write model_confidence to switch
 top_k_per_timestamp = 2
 ticker_cooldown_minutes = 60
+max_concurrent_positions_per_ticker = 1
 
 [meta]
 enabled = true # turn on the meta layer

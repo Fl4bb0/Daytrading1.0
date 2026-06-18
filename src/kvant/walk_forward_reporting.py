@@ -33,6 +33,7 @@ def write_walk_forward_aggregate(
     execution_priority: str,
     top_k_per_timestamp: Optional[int],
     ticker_cooldown_minutes: int,
+    max_concurrent_positions_per_ticker: Optional[int] = None,
 ) -> Path:
     aggregate_dir = Path(aggregate_dir)
     aggregate_dir.mkdir(parents=True, exist_ok=True)
@@ -176,6 +177,7 @@ def write_walk_forward_aggregate(
         execution_priority=execution_priority,
         top_k_per_timestamp=top_k_per_timestamp,
         ticker_cooldown_minutes=ticker_cooldown_minutes,
+        max_concurrent_positions_per_ticker=max_concurrent_positions_per_ticker,
     )
 
     dist_rows = []

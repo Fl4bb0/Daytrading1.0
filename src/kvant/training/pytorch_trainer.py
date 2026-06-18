@@ -48,6 +48,7 @@ from kvant.training.predict import predict_loader
 class _HasNet(Protocol):
     net: nn.Module
     device: torch.device
+    n_classes: int
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +147,7 @@ class PytorchTrainer(Trainer):
             else None
         )
 
-        n_classes = int(y_train.max()) + 1
+        n_classes = self._pytorch_model.n_classes
         weights   = _class_weights(y_train, n_classes).to(self._device)
         criterion = nn.CrossEntropyLoss(weight=weights)
         optimizer = torch.optim.Adam(

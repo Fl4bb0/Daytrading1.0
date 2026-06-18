@@ -77,6 +77,7 @@ DEFAULT_PIPELINE_CONFIG: dict[str, Any] = {
         "execution_priority": "model_confidence",
         "top_k_per_timestamp": None,
         "ticker_cooldown_minutes": 0,
+        "max_concurrent_positions_per_ticker": None,
     },
     "meta": {
         "enabled": False,
@@ -266,6 +267,11 @@ def _validate_config(cfg: dict[str, Any], path: Path) -> None:
     ticker_cooldown_minutes = int(cfg["predict"].get("ticker_cooldown_minutes", 0))
     if ticker_cooldown_minutes < 0:
         raise SystemExit(f"predict.ticker_cooldown_minutes must be >= 0 in {path}")
+
+    max_concurrent_positions_per_ticker = cfg["predict"].get("max_concurrent_positions_per_ticker")
+    if max_concurrent_positions_per_ticker not in (None, "", 0):
+        if int(max_concurrent_positions_per_ticker) <= 0:
+            raise SystemExit(f"predict.max_concurrent_positions_per_ticker must be > 0 in {path}")
 
     meta_train_split = str(cfg.get("meta", {}).get("train_split", "val"))
     if meta_train_split not in {"train", "val"}:

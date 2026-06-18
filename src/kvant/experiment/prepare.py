@@ -65,11 +65,12 @@ def _counts_by_split(
     ts: np.ndarray,
     val_start: Optional[np.datetime64],
     test_start: Optional[np.datetime64],
+    test_end: Optional[np.datetime64] = None,
 ) -> Dict[str, int]:
     out: Dict[str, int] = {"train": 0, "val": 0, "test": 0}
     for tt in ts:
         for split in ("train", "val", "test"):
-            if in_split(tt, split, val_start, test_start):
+            if in_split(tt, split, val_start, test_start, test_end=test_end):
                 out[split] += 1
                 break
     return out
@@ -105,6 +106,8 @@ def prepare_experiment(
     ticker_dfs_test: Dict[str, pd.DataFrame],
     experiment_id: Optional[str] = None,
     num_workers: int = 1,
+    ticker_dfs_test_lookahead: Optional[Dict[str, pd.DataFrame]] = None,
+    test_end_exclusive: Optional[pd.Timestamp] = None,
 ) -> PreparedExperimentManifest:
     """
     Prepare a full experiment and persist all artifacts to disk.
@@ -112,6 +115,13 @@ def prepare_experiment(
     Splits are provided explicitly as dicts of DataFrames. For each ticker
     the full history (train+val+test) is concatenated, sampled, and processed
     so val/test can use the causal training history without leakage.
+
+    ``ticker_dfs_test_lookahead`` optionally supplies extra bars immediately
+    after the test window, used only so the labeler can resolve triple-barrier
+    exits for trades entered near the end of test (which would otherwise be
+    dropped for lacking a future bar). These bars never become eligible trade
+    entries themselves: ``test_end_exclusive`` is the boundary that keeps them
+    out of the test split's entry set.
     """
     stage_timings: Dict[str, float] = {}
     t0_total = time.perf_counter()
@@ -224,6 +234,7 @@ def prepare_experiment(
             ticker_dfs_train.get(t),
             ticker_dfs_val.get(t),
             ticker_dfs_test.get(t),
+            (ticker_dfs_test_lookahead or {}).get(t),
         ])
         if len(df_full) == 0:
             raise RuntimeError(f"Ticker {t!r} has no rows across any split.")
@@ -255,8 +266,8 @@ def prepare_experiment(
             "retention_ratio":         retention,
             "bars_per_day_raw":        _bars_per_day(ts_raw),
             "bars_per_day_sampled":    _bars_per_day(ts),
-            "raw_counts_by_split":     _counts_by_split(ts_raw, val_start, test_start),
-            "sampled_counts_by_split": _counts_by_split(ts, val_start, test_start),
+            "raw_counts_by_split":     _counts_by_split(ts_raw, val_start, test_start, test_end=test_end_exclusive),
+            "sampled_counts_by_split": _counts_by_split(ts, val_start, test_start, test_end=test_end_exclusive),
             "label_counts":            _label_counts(y),
             "label_counts_valid":      _label_counts(y[valid_pos]) if len(valid_pos) else {},
         }
@@ -336,7 +347,10 @@ def prepare_experiment(
             for p in vp:
                 entry_ts = ts_t[int(p)]
                 exit_ts = close_t[int(p)]
-                in_entry = in_split(entry_ts, split, val_s, test_s)
+                # test_end bounds entries (so lookahead-buffer bars never
+                # become entries themselves); exits are left unbounded so an
+                # exit landing inside the buffer still counts as "in test".
+                in_entry = in_split(entry_ts, split, val_s, test_s, test_end=test_end_exclusive)
                 if not in_entry:
                     continue
 

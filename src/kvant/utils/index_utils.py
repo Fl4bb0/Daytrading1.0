@@ -28,6 +28,7 @@ def in_split(
     split: str,
     val_start,
     test_start,
+    test_end=None,
 ) -> bool:
     """
     Return True if timestamp `ts` belongs to `split` given the boundaries.
@@ -38,10 +39,15 @@ def in_split(
     split      : "train" | "val" | "test"
     val_start  : first timestamp of the validation split (or None).
     test_start : first timestamp of the test split (or None).
+    test_end   : exclusive end of the test split (or None for no upper bound).
+                 Lets callers append a label-lookahead buffer of bars after
+                 the nominal test window without those buffer bars becoming
+                 eligible trade entries themselves.
     """
     ts = as_dt64_utc_naive(ts)
     val_start = as_dt64_utc_naive(val_start)
     test_start = as_dt64_utc_naive(test_start)
+    test_end = as_dt64_utc_naive(test_end)
 
     if split == "train":
         cut = val_start if val_start is not None else test_start
@@ -57,6 +63,8 @@ def in_split(
     if split == "test":
         if test_start is None:
             return False
-        return bool(ts >= test_start)
+        if test_end is None:
+            return bool(ts >= test_start)
+        return bool((ts >= test_start) and (ts < test_end))
 
     raise ValueError(f"Unknown split: {split!r}. Expected 'train', 'val', or 'test'.")

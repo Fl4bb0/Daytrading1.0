@@ -90,6 +90,19 @@ def main() -> None:
             _write_manifest(manifest_path, cfg_path, run_id, folds, completed_rows, skipped_rows, pipeline_cfg)
             continue
 
+        # Give the labeler a few extra days of already-elapsed bars past the
+        # fold's test boundary, purely so trades entered near the end of test
+        # can resolve a real triple-barrier exit instead of being dropped for
+        # lacking a future bar. These bars are excluded from the test split's
+        # eligible entries (see test_end_exclusive below).
+        lookahead_buffer_end = fold.test_end_exclusive + pd.Timedelta(days=5)
+        test_lookahead_dfs: dict[str, pd.DataFrame] = {}
+        for sym in eligible_tickers:
+            df = ticker_dfs[sym]
+            sliced = df.loc[(df.index >= fold.test_end_exclusive) & (df.index < lookahead_buffer_end)]
+            if len(sliced) > 0:
+                test_lookahead_dfs[sym] = sliced.copy()
+
         sampler, fe, labeler, exp_cfg = build_default_components(
             interval=pipeline_cfg["data"].get("interval", "1m"),
             volatility_scaled_barrier=bool(pipeline_cfg["prepare"].get("volatility_scaled_barrier", True)),
@@ -113,6 +126,8 @@ def main() -> None:
             ticker_dfs_test=test_dfs,
             experiment_id=fold.fold_id,
             num_workers=int(prepare_cfg.get("num_workers", 1)),
+            ticker_dfs_test_lookahead=test_lookahead_dfs,
+            test_end_exclusive=fold.test_end_exclusive,
         )
         fold_dir = prepared.exp_dir
         (fold_dir / "walk_forward_fold.json").write_text(

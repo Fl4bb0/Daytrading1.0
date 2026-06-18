@@ -64,8 +64,8 @@ experiment_id = "last"
 model = "resnls"
 split = "test"
 tickers = []
-required_buy_probability = 0.5
-required_sell_probability = 0.5
+required_buy_probability = 0.75
+required_sell_probability = 0.75
 allow_short = false # option to go long only
 execution_priority = "meta_score" # write model_confidence to switch
 top_k_per_timestamp = 2
@@ -102,7 +102,7 @@ shallow_epochs = 20
 shallow_patience = 5
 
 [ensemble]
-models = ["resnls", "conv1d", "tsb"]
+models = ["resnls"] #, "conv1d", "tsb"
 
 [data_sources]
 # Boundary between HuggingFace (historical) and Yahoo (incremental)

@@ -1,0 +1,91 @@
+Walk-Forward Pipeline Explanation
+==================================
+Date: 2026-06-15
+Project: daytrading (C:\Users\fabia\PycharmProjects\daytrading)
+
+================================================================================
+USER: can you explain the walk forward pipeline for me
+================================================================================
+
+ASSISTANT:
+
+## Walk-Forward Pipeline Overview
+
+Goal: Simulate how the model would actually perform in the real world by
+repeatedly training on past data and testing on future data — never letting
+the model "see" the future during training.
+
+--------------------------------------------------------------------------------
+1. Fold Construction (src/kvant/utils/walk_forward.py)
+--------------------------------------------------------------------------------
+
+The pipeline slices time into overlapping windows called folds.
+With your current config (mode = "expanding"):
+
+  Fold 0:  TRAIN [Jan–Apr]  VAL [May]  TEST [Jun]
+  Fold 1:  TRAIN [Jan–May]  VAL [Jun]  TEST [Jul]
+            ^--- train grows each step (expanding window)
+
+Key config params (pipeline.toml [walk_forward]):
+  - train_span_months = 4      initial training window
+  - val_span_months   = 1      validation window per fold
+  - test_span_months  = 1      test window per fold
+  - step_span_months  = 1      slide forward by 1 month each fold
+  - max_train_span_months = 6  caps how far back training reaches
+
+In "rolling" mode the train window slides forward at a fixed size instead
+of growing.
+
+--------------------------------------------------------------------------------
+2. Per-Fold Loop (scripts/run_walk_forward.py)
+--------------------------------------------------------------------------------
+
+For each fold, the script runs the full pipeline in sequence:
+
+  load data -> slice for fold -> prepare -> train model(s) -> train meta
+            -> predict -> collect metrics
+
+Each fold gets its own subdirectory:
+  prepared/walkforward/<run_id>/fold_XXX/
+
+A walk_forward_fold.json is written with the exact date boundaries and
+which tickers were eligible.
+
+--------------------------------------------------------------------------------
+3. Ticker Eligibility
+--------------------------------------------------------------------------------
+
+A ticker is only included in a fold if it has at least:
+  - min_train_rows_per_ticker rows in the training split
+  - min_val_rows_per_ticker   rows in the validation split
+  - min_test_rows_per_ticker  rows in the test split
+
+This prevents tickers with data gaps from contaminating a fold.
+
+--------------------------------------------------------------------------------
+4. Aggregation
+--------------------------------------------------------------------------------
+
+After all folds finish, write_walk_forward_aggregate (walk_forward_reporting.py)
+concatenates the test predictions across all folds into a single time series,
+then computes combined return stats, metrics, and plots.
+
+This gives you an out-of-sample equity curve spanning the full period
+without any lookahead bias.
+
+The run is fingerprinted with a SHA-256 hash of your config, so changing
+any parameter automatically creates a new run directory instead of
+overwriting the old one.
+
+--------------------------------------------------------------------------------
+How to Run
+--------------------------------------------------------------------------------
+
+  python scripts/run_walk_forward.py --config pipeline.toml
+
+With your current config (Jan–Jul 2025, 4-month initial train, 1-month steps)
+you will get 2 folds based on the data range.
+
+================================================================================
+END OF TRANSCRIPT
+================================================================================

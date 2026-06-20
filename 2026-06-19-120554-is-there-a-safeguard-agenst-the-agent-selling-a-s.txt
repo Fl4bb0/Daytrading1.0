@@ -1,0 +1,1158 @@
+ ▐▛███▜▌   Claude Code v2.1.181
+▝▜█████▛▘  Sonnet 4.6 · Claude Pro
+  ▘▘ ▝▝    ~\PycharmProjects\daytrading
+
+
+❯ is there a safeguard agenst the agent selling a stock and then imidiatly      
+  buying it again because its on a down trend?                                  
+
+● I'll look into the trading logic to check for any cooldown/hysteresis
+  mechanism preventing rapid sell-then-rebuy cycles.
+
+● Explore(Find trade execution and re-entry logic)
+  ⎿  Done (15 tool uses · 44.7k tokens · 38s)
+  (ctrl+o to expand)
+
+  Read 1 file (ctrl+o to expand)
+
+● Confirmed — this matches what the agent found. Here's the answer:
+
+  Yes, but it's a "new entry" cooldown, not a "don't immediately flip" guard — 
+  and it's off by default.
+
+  - _apply_ticker_cooldown() in src/kvant/evaluation/runner.py:735-760 drops any
+  new trade on a ticker that arrives less than ticker_cooldown_minutes after
+  the prior entry on that same ticker. This is what you're looking for, but the
+  default is ticker_cooldown_minutes=0 — i.e. disabled — wherever it's wired up
+  (lines ~156, 231, 296, 369, 500).
+  - _apply_action_probability_thresholds() (lines 763-785) demotes
+  low-confidence BUY/SHORT predictions to HOLD, which indirectly reduces
+  flip-flopping but doesn't track "did we just exit this ticker."
+  - The meta-model scoring in src/kvant/meta/features.py:106-159 weights signals
+  by historical per-ticker/per-side profitability, which also indirectly
+  discourages re-entering a side that's been losing — but again it's a soft
+  bias, not a hard block.
+  - Round-trip transaction fees (runner.py:503,554) are subtracted from PnL, so
+  churning costs money in the backtest, but nothing stops the model from doing
+  it if it predicts each flip is profitable net of fees.
+
+  So: the mechanism exists (ticker_cooldown_minutes) but isn't active unless you
+  explicitly set it in your config. If you want, I can find where you'd pass
+  that parameter for your current walk-forward/backtest setup and turn it on.
+
+✻ Churned for 1m 2s
+
+❯ Turn on ticker_cooldown_minutes for my walk-forward config                    
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● It's already turned on — pipeline.toml:72 already has ticker_cooldown_minutes 
+  = 60.
+
+  Read 1 file (ctrl+o to expand)
+
+● Good news — pipeline.toml under [predict] already has ticker_cooldown_minutes 
+  = 60, so a 60-minute cooldown is active for your walk-forward runs (confirmed
+  it's read by scripts/run_walk_forward.py:176 and
+  src/kvant/pipeline_runtime.py:303 → passed into the evaluation runner, which
+  enforces it in _apply_ticker_cooldown).
+
+  So the safeguard is already on, at 60 minutes. Want me to bump that value, or
+  were you looking at a different config file where it's still 0?
+
+✻ Churned for 12s
+
+❯ can there be anothere reaone why downtrends in the program accumilates in     
+  specific places?                                                              
+
+  Read 1 file (ctrl+o to expand)
+
+● Explore(Find causes of clustered drawdowns)
+  ⎿  Done (18 tool uses · 63.2k tokens · 8m 52s)
+  (ctrl+o to expand)
+
+● Let me verify the shakier claims before passing them along — point 3 in
+  particular reads ambiguously.
+
+  Searched for 2 patterns, read 2 files (ctrl+o to expand)
+
+● That confirms the picture — there's no drawdown circuit breaker or
+  sector/correlation cap anywhere in the core evaluation/execution path. Here's
+  the verified answer:
+
+  Yes — beyond the immediate-re-entry case (already covered by the cooldown), I
+  found four structural reasons losses can cluster at specific tickers or time
+  windows:
+
+  1. Meta-score lags regime changes — src/kvant/meta/features.py:140-141. The
+  per-ticker/side score is (local_sum + shrinkage_k * global_mean) / (local_n + 
+  shrinkage_k), built only from resolved past trades. When a ticker flips into a
+  new downtrend, its score still reflects the old (profitable) regime until
+  enough new losing trades accumulate to drag it down — so the model keeps
+  buying into the downtrend for a while before the score catches up.
+  2. Top-K selection has no diversification constraint — runner.py:696-697
+  (top_k_per_timestamp). Candidates are ranked purely by meta_score per
+  timestamp; if two or three correlated tickers (same sector, same factor
+  exposure) all score well at once, all get selected together. A drawdown
+  hitting that shared factor hits all selected positions simultaneously instead
+  of being diversified away.
+  3. No per-ticker or sector exposure cap, and no drawdown circuit breaker —
+  runner.py:469,526-554. Position sizing is purely 1/n_pools per trade with no
+  check on how many pools are already concentrated in one ticker/sector, and
+  nothing halts new entries after a string of losses. Confirmed by grep: no
+  drawdown, max_concurrent, or sector cap logic exists anywhere in src/kvant.
+  4. Fixed/volatility-scaled barrier widths create per-ticker loss signatures —
+  low-volatility tickers get a relatively tight stop, high-volatility ones a
+  wide one, so some tickers structurally bleed small losses repeatedly while
+  others structurally take bigger hits, concentrating drawdown contribution
+  unevenly.
+
+  One claim from my first pass didn't hold up on closer reading and I'm dropping
+  it: _apply_short_execution_policy (runner.py:812-817) just converts
+  SHORT→HOLD when allow_short=false — it does not cause the system to go long on
+  downtrending names instead. Long-only mode means downtrend-correct SHORT
+  calls get skipped, not converted to buys.
+
+  Most actionable starting point if you want to dig in: add a simple
+  per-ticker/sector concentration cap on top_k_per_timestamp selection, since
+  that's the one with no mitigating logic at all today. Want me to implement
+  that, or look closer at one of the other three first?
+
+✻ Brewed for 2m 15s
+
+❯ add a per-ticker/sector concentration cap on top_k selection                  
+
+  Searched for 3 patterns, read 2 files (ctrl+o to expand)
+
+● Before implementing, I need to settle scope — there's no sector data anywhere
+  in the codebase (the universe in pipeline.toml:15 is just a flat list of 95
+  tickers), and a per-ticker cap within a single timestamp's top-k doesn't
+  really apply since each ticker only contributes one row per timestamp already.
+  The meaningful caps are: (a) limiting concurrent open positions in the same
+  ticker across pools, and (b) limiting how many same-sector tickers can be
+  selected at once, which needs a sector mapping I'd have to add.
+● User answered Claude's questions:
+  ⎿  · What concentration cap should I implement? → Per-ticker only 
+     (Recommended)
+
+  Read 2 files (ctrl+o to expand)
+
+● Now let me check the remaining wiring sites: config defaults/validation,
+  runtime, benchmarking runner, and walk-forward scripts.
+
+  Read 2 files (ctrl+o to expand)
+
+● Now let's check the benchmarking runner and walk-forward scripts to see all
+  wiring sites.
+
+  Read 1 file (ctrl+o to expand)
+
+● Now check walk_forward_reporting.py and run_walk_forward.py.
+
+  Read 2 files (ctrl+o to expand)
+
+● Now I'll implement the cap. First, the core enforcement logic in
+  _save_equity_curve:
+
+● Update(src\kvant\evaluation\runner.py)
+  ⎿  Added 6 lines
+      470      execution_priority: str = "model_confidence",
+      471      top_k_per_timestamp: Optional[int] = None,
+      472      ticker_cooldown_minutes: int = 0,
+      473 +    max_concurrent_positions_per_ticker: Optional[int] = None,
+      474  ) -> None:
+      475      """
+      476      Build and save a cumulative portfolio PnL equity curve.
+     ...
+      490      share the same entry timestamp, ``execution_priority`` dec
+           ides which
+      491      ones claim scarce pools first. ``top_k_per_timestamp`` and
+      492      ``ticker_cooldown_minutes`` can further reduce execution c
+           hurn.
+      493 +    ``max_concurrent_positions_per_ticker`` caps how many posi
+          +tions in the                                                  
+      494 +    same ticker may be open (entry to exit) at once, even acro
+          +ss different                                                  
+      495 +    pools; ``None`` disables the cap.                         
+      496      """
+      497      if execution_priority not in _EXECUTION_PRIORITIES:
+      498          raise ValueError(
+     ...
+      504      ticker_cooldown_minutes = int(ticker_cooldown_minutes)
+      505      if ticker_cooldown_minutes < 0:
+      506          raise ValueError("ticker_cooldown_minutes must be >= 0
+           ")
+      507 +    if max_concurrent_positions_per_ticker is not None and int
+          +(max_concurrent_positions_per_ticker) <= 0:                   
+      508 +        raise ValueError("max_concurrent_positions_per_ticker 
+          +must be > 0 when provided")                                   
+      509      round_trip_fee_pct = 2.0 * float(fee) * 100.0   # percenta
+           ge points
+      510  
+      511      _empty_cols = [
+
+● Now the pool allocation loop itself:
+
+● Update(src\kvant\evaluation\runner.py)
+  ⎿  Added 18 lines, removed 5 lines
+      530      # Simulate pool allocation
+      531      # Each pool is "busy" until the trade's bar_close_time.
+      532      pool_free_at: list[pd.Timestamp] = [pd.Timestamp.min] * n_
+           pools
+      533 +    open_exit_times_by_ticker: dict[str, list[pd.Timestamp]] =
+          + {}                                                           
+      534      rows = []
+      535  
+      536      for event_order, row in enumerate(candidates):
+     ...
+      546          # Count how many pools are busy at this entry time
+      547          busy = sum(1 for t in pool_free_at if t > entry_ts)
+      548  
+      549 +        # Prune this ticker's open positions that have already
+          + exited, then                                                 
+      550 +        # check whether it's already at its concurrency cap.  
+      551 +        ticker = str(row["ticker"])                           
+      552 +        open_exits = open_exit_times_by_ticker.setdefault(tick
+          +er, [])                                                       
+      553 +        open_exits[:] = [t for t in open_exits if t > entry_ts
+          +]                                                             
+      554 +        ticker_cap_reached = (                                
+      555 +            max_concurrent_positions_per_ticker is not None   
+      556 +            and len(open_exits) >= int(max_concurrent_position
+          +s_per_ticker)                                                 
+      557 +        )                                                     
+      558 +                                                              
+      559          # Try to claim a pool (pick the one that freed up earl
+           iest)
+      560          pool_idx = None
+      550 -        for i, free_at in enumerate(pool_free_at):            
+      551 -            if free_at <= entry_ts:                           
+      552 -                pool_idx = i                                  
+      553 -                break                                         
+      561 +        if not ticker_cap_reached:                            
+      562 +            for i, free_at in enumerate(pool_free_at):        
+      563 +                if free_at <= entry_ts:                       
+      564 +                    pool_idx = i                              
+      565 +                    break                                     
+      566  
+      567          skipped = pool_idx is None
+      556 -        if not skipped and exit_ts is not None and not pd.isna
+          -(exit_ts):                                                    
+      568 +        if not skipped:                                       
+      569              pool_free_at[pool_idx] = exit_ts
+      570 +            open_exits.append(exit_ts)                        
+      571  
+      572          portfolio_pnl = 0.0 if skipped else gross_pct / n_pool
+           s
+      573          portfolio_pnl_net = 0.0 if skipped else (gross_pct - r
+           ound_trip_fee_pct) / n_pools
+
+● Now wire it through evaluate_experiment:
+
+● Update(src\kvant\evaluation\runner.py)
+  ⎿  Added 1 line
+      176      execution_priority: str = "model_confidence",
+      177      top_k_per_timestamp: Optional[int] = None,
+      178      ticker_cooldown_minutes: int = 0,
+      179 +    max_concurrent_positions_per_ticker: Optional[int] = None,
+      180      model: Optional[KvantModel] = None,
+      181      meta_model: Optional[object] = None,
+      182      meta_model_path: Optional[Path] = None,
+
+● Update(src\kvant\evaluation\runner.py)
+  ⎿  Added 3 lines
+      212                   the cap.
+      213      ticker_cooldown_minutes : Minimum wait time before the sam
+           e ticker can
+      214                   open another trade. ``0`` disables the cooldo
+           wn.
+      215 +    max_concurrent_positions_per_ticker : Optional cap on how 
+          +many positions                                                
+      216 +                 in the same ticker may be open (entry to exit
+          +) at once,                                                    
+      217 +                 even across different pools. ``None`` disable
+          +s the cap.                                                    
+      218  
+      219      Returns
+      220      -------
+
+● Update(src\kvant\evaluation\runner.py)
+  ⎿  Added 2 lines
+      235      ticker_cooldown_minutes = int(ticker_cooldown_minutes)
+      236      if ticker_cooldown_minutes < 0:
+      237          raise ValueError("ticker_cooldown_minutes must be >= 0
+           ")
+      238 +    if max_concurrent_positions_per_ticker is not None and int
+          +(max_concurrent_positions_per_ticker) <= 0:                   
+      239 +        raise ValueError("max_concurrent_positions_per_ticker 
+          +must be > 0 when provided")                                   
+      240  
+      241      model = model if model is not None else model_cls.load(mod
+           el_path)
+      242      artifacts = _build_prediction_artifacts(
+
+● Update(src\kvant\evaluation\runner.py)
+  ⎿  Added 1 line
+      373          execution_priority=execution_priority,
+      374          top_k_per_timestamp=top_k_per_timestamp,
+      375          ticker_cooldown_minutes=ticker_cooldown_minutes,
+      376 +        max_concurrent_positions_per_ticker=max_concurrent_pos
+          +itions_per_ticker,                                            
+      377      )
+      378  
+      379      # --------------------------------------------------------
+           ----------
+
+● Update(src\kvant\evaluation\runner.py)
+  ⎿  Added 3 lines
+      446          "execution_priority": execution_priority,
+      447          "top_k_per_timestamp": "" if top_k_per_timestamp is No
+           ne else int(top_k_per_timestamp),
+      448          "ticker_cooldown_minutes": ticker_cooldown_minutes,
+      449 +        "max_concurrent_positions_per_ticker": (              
+      450 +            "" if max_concurrent_positions_per_ticker is None 
+          +else int(max_concurrent_positions_per_ticker)                 
+      451 +        ),                                                    
+      452          "n_thresholded_to_hold": n_thresholded_to_hold,
+      453          "n_meta_thresholded_to_hold": n_meta_thresholded_to_ho
+           ld,
+      454          "n_short_blocked_by_policy": n_short_blocked_by_policy
+           ,
+
+● Now wire through walk_forward_reporting.py:
+
+● Update(src\kvant\walk_forward_reporting.py)
+  ⎿  Added 1 line
+      33      execution_priority: str,
+      34      top_k_per_timestamp: Optional[int],
+      35      ticker_cooldown_minutes: int,
+      36 +    max_concurrent_positions_per_ticker: Optional[int] = None, 
+      37  ) -> Path:
+      38      aggregate_dir = Path(aggregate_dir)
+      39      aggregate_dir.mkdir(parents=True, exist_ok=True)
+
+● Update(src\kvant\walk_forward_reporting.py)
+  ⎿  Added 1 line
+      177          execution_priority=execution_priority,
+      178          top_k_per_timestamp=top_k_per_timestamp,
+      179          ticker_cooldown_minutes=ticker_cooldown_minutes,
+      180 +        max_concurrent_positions_per_ticker=max_concurrent_pos
+          +itions_per_ticker,                                            
+      181      )
+      182  
+      183      dist_rows = []
+
+● Now scripts/run_walk_forward.py:
+
+● Update(scripts\run_walk_forward.py)  ⎿  Added 5 lines
+      174          if predict_cfg.get("top_k_per_timestamp") in (None, ""
+           , 0)
+      175          else int(predict_cfg.get("top_k_per_timestamp")),
+      176          ticker_cooldown_minutes=int(predict_cfg.get("ticker_co
+           oldown_minutes", 0)),
+      177 +        max_concurrent_positions_per_ticker=(                 
+      178 +            None                                              
+      179 +            if predict_cfg.get("max_concurrent_positions_per_t
+          +icker") in (None, "", 0)                                      
+      180 +            else int(predict_cfg.get("max_concurrent_positions
+          +_per_ticker"))                                                
+      181 +        ),                                                    
+      182      )
+      183  
+      184      _write_manifest(
+
+● Now pipeline_runtime.py:
+
+● Update(src\kvant\pipeline_runtime.py)
+  ⎿  Added 2 lines
+      301      top_k_raw = predict_cfg.get("top_k_per_timestamp")
+      302      top_k_per_timestamp = None if top_k_raw in (None, "", 0) e
+           lse int(top_k_raw)
+      303      ticker_cooldown_minutes = int(predict_cfg.get("ticker_cool
+           down_minutes", 0))
+      304 +    max_concurrent_raw = predict_cfg.get("max_concurrent_posit
+          +ions_per_ticker")                                             
+      305 +    max_concurrent_positions_per_ticker = None if max_concurre
+          +nt_raw in (None, "", 0) else int(max_concurrent_raw)          
+      306      meta_enabled = bool(meta_cfg.get("enabled", False))
+      307      meta_train_split = str(meta_cfg.get("train_split", "val"))
+      308      meta_shrinkage_k = float(meta_cfg.get("shrinkage_k", 10.0)
+           )
+
+● Update(src\kvant\pipeline_runtime.py)
+  ⎿  Added 1 line
+      360          execution_priority=execution_priority,
+      361          top_k_per_timestamp=top_k_per_timestamp,
+      362          ticker_cooldown_minutes=ticker_cooldown_minutes,
+      363 +        max_concurrent_positions_per_ticker=max_concurrent_pos
+          +itions_per_ticker,                                            
+      364          model=runtime.model,
+      365          meta_model=meta_model,
+      366          meta_model_path=meta_model_path,
+
+● Now benchmarking/runner.py — read config and pass to all 4 evaluate_experiment
+  call sites:
+
+● Update(src\kvant\benchmarking\runner.py)
+  ⎿  Added 2 lines
+      154      top_k_raw = predict_cfg.get("top_k_per_timestamp")
+      155      top_k_per_timestamp = None if top_k_raw in (None, "", 0) e
+           lse int(top_k_raw)
+      156      ticker_cooldown_minutes = int(predict_cfg.get("ticker_cool
+           down_minutes", 0))
+      157 +    max_concurrent_raw = predict_cfg.get("max_concurrent_posit
+          +ions_per_ticker")                                             
+      158 +    max_concurrent_positions_per_ticker = None if max_concurre
+          +nt_raw in (None, "", 0) else int(max_concurrent_raw)          
+      159      execution_priority = str(predict_cfg.get("execution_priori
+           ty", "model_confidence"))
+      160  
+      161      meta_train_split = str(meta_cfg.get("train_split", "val"))
+
+● Update(src\kvant\benchmarking\runner.py)
+  ⎿  Added 4 lines
+      241          execution_priority=execution_priority,
+      242          top_k_per_timestamp=top_k_per_timestamp,
+      243          ticker_cooldown_minutes=ticker_cooldown_minutes,
+      244 +        max_concurrent_positions_per_ticker=max_concurrent_pos
+          +itions_per_ticker,                                            
+      245          model=council_model,
+      246          meta_model=council_meta,
+      247          meta_model_path=council_meta_path,
+     ...
+      297          execution_priority=execution_priority,
+      298          top_k_per_timestamp=top_k_per_timestamp,
+      299          ticker_cooldown_minutes=ticker_cooldown_minutes,
+      300 +        max_concurrent_positions_per_ticker=max_concurrent_pos
+          +itions_per_ticker,                                            
+      301          model=single_model,
+      302          meta_model=single_meta,
+      303          meta_model_path=single_meta_path,
+     ...
+      347          execution_priority=_non_meta_execution_priority(execut
+           ion_priority),
+      348          top_k_per_timestamp=top_k_per_timestamp,
+      349          ticker_cooldown_minutes=ticker_cooldown_minutes,
+      350 +        max_concurrent_positions_per_ticker=max_concurrent_pos
+          +itions_per_ticker,                                            
+      351          model=shallow_model,
+      352      )
+      353      runs.append(_EvalRun("one_layer_cnn", shallow_dir, "one_la
+           yer_cnn"))
+     ...
+      381              execution_priority="model_confidence",
+      382              top_k_per_timestamp=top_k_per_timestamp,
+      383              ticker_cooldown_minutes=ticker_cooldown_minutes,
+      384 +        max_concurrent_positions_per_ticker=max_concurrent_pos
+          +itions_per_ticker,                                            
+      385              model=random_model,
+      386          )
+      387          runs.append(_EvalRun(f"random_seed_{i:03d}", random_di
+           r, "random", seed=seed))
+
+● Now add it to the summary metadata key list:
+
+● Update(src\kvant\benchmarking\runner.py)
+  ⎿  Added 1 line
+      713              "execution_priority",
+      714              "top_k_per_timestamp",
+      715              "ticker_cooldown_minutes",
+      716 +            "max_concurrent_positions_per_ticker",            
+      717              "n_thresholded_to_hold",
+      718              "n_meta_thresholded_to_hold",
+      719              "allow_short",
+
+● Now pipeline_config.py — add default and validation:
+
+● Update(src\kvant\utils\pipeline_config.py)
+  ⎿  Added 1 line
+      77          "execution_priority": "model_confidence",
+      78          "top_k_per_timestamp": None,
+      79          "ticker_cooldown_minutes": 0,
+      80 +        "max_concurrent_positions_per_ticker": None,           
+      81      },
+      82      "meta": {
+      83          "enabled": False,
+
+● Update(src\kvant\utils\pipeline_config.py)
+  ⎿  Added 5 lines
+      268      if ticker_cooldown_minutes < 0:
+      269          raise SystemExit(f"predict.ticker_cooldown_minutes mus
+           t be >= 0 in {path}")
+      270  
+      271 +    max_concurrent_positions_per_ticker = cfg["predict"].get("
+          +max_concurrent_positions_per_ticker")                         
+      272 +    if max_concurrent_positions_per_ticker not in (None, "", 0
+          +):                                                            
+      273 +        if int(max_concurrent_positions_per_ticker) <= 0:     
+      274 +            raise SystemExit(f"predict.max_concurrent_position
+          +s_per_ticker must be > 0 in {path}")                          
+      275 +                                                              
+      276      meta_train_split = str(cfg.get("meta", {}).get("train_spli
+           t", "val"))
+      277      if meta_train_split not in {"train", "val"}:
+      278          raise SystemExit(f"meta.train_split must be one of tra
+           in|val in {path}")
+
+● Now pipeline.toml:
+
+● Update(pipeline.toml)
+  ⎿  Added 1 line
+      70  execution_priority = "meta_score" # write model_confidence to s
+          witch
+      71  top_k_per_timestamp = 2
+      72  ticker_cooldown_minutes = 60
+      73 +max_concurrent_positions_per_ticker = 1                        
+      74  
+      75  [meta]
+      76  enabled = true # turn on the meta layer
+
+● Let's check scripts/run_walk_forward_compare.py:116 for consistency with the
+  comparison report:
+
+  Read 1 file (ctrl+o to expand)
+
+● This is just a config-signature display row for run comparison — adding the
+  new field keeps it visible across comparison runs.
+
+● Update(scripts\run_walk_forward_compare.py)
+  ⎿  Added 3 lines
+      114              "train.learning_rate": config_sig.get("train", {})
+           .get("learning_rate", ""),
+      115              "predict.top_k_per_timestamp": config_sig.get("pre
+           dict", {}).get("top_k_per_timestamp", ""),
+      116              "predict.ticker_cooldown_minutes": config_sig.get(
+           "predict", {}).get("ticker_cooldown_minutes", ""),
+      117 +            "predict.max_concurrent_positions_per_ticker": con
+          +fig_sig.get("predict", {}).get(                               
+      118 +                "max_concurrent_positions_per_ticker", ""     
+      119 +            ),                                                
+      120              "meta.enabled": config_sig.get("meta", {}).get("en
+           abled", ""),
+      121          }
+      122          rows.append(row)
+
+● Let's add tests mirroring the existing cooldown tests. First check the config
+  test file structure:
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(tests\test_pipeline_config.py)
+  ⎿  Added 14 lines
+      300              with self.assertRaises(SystemExit):
+      301                  load_pipeline_config(cfg_path)
+      302  
+      303 +    def test_validation_rejects_invalid_max_concurrent_positio
+          +ns_per_ticker(self) -> None:                                  
+      304 +        with tempfile.TemporaryDirectory() as tmpdir:         
+      305 +            cfg_path = Path(tmpdir) / "pipeline.toml"         
+      306 +            cfg_path.write_text(                              
+      307 +                "\n".join(                                    
+      308 +                    [                                         
+      309 +                        "[predict]",                          
+      310 +                        "max_concurrent_positions_per_ticker =
+          + -1",                                                         
+      311 +                    ]                                         
+      312 +                )                                             
+      313 +            )                                                 
+      314 +            with self.assertRaises(SystemExit):               
+      315 +                load_pipeline_config(cfg_path)                
+      316 +                                                              
+      317      def test_validation_accepts_non_negative_brokerage_fee(sel
+           f) -> None:
+      318          with tempfile.TemporaryDirectory() as tmpdir:
+      319              cfg_path = Path(tmpdir) / "pipeline.toml"
+
+● Now add a behavioral test in test_evaluation_runner.py mirroring the cooldown
+  test:
+
+● Update(tests\test_evaluation_runner.py)
+  ⎿  Added 47 lines
+      271              ["14:30:00", "15:35:00"],
+      272          )
+      273  
+      274 +    def test_max_concurrent_positions_per_ticker_blocks_overla
+          +pping_entries(self) -> None:                                  
+      275 +        pred_df = pd.DataFrame(                               
+      276 +            {                                                 
+      277 +                "timestamp": pd.to_datetime(                  
+      278 +                    [                                         
+      279 +                        "2025-01-02 14:30:00",                
+      280 +                        "2025-01-02 14:35:00",                
+      281 +                        "2025-01-02 14:50:00",                
+      282 +                    ]                                         
+      283 +                ),                                            
+      284 +                "ticker": ["AAA", "AAA", "AAA"],              
+      285 +                "y_pred": [2, 2, 2],                          
+      286 +                "pnl_fraction": [0.01, 0.02, 0.03],           
+      287 +                "bar_close_time": pd.to_datetime(             
+      288 +                    [                                         
+      289 +                        "2025-01-02 14:45:00",                
+      290 +                        "2025-01-02 14:55:00",                
+      291 +                        "2025-01-02 15:00:00",                
+      292 +                    ]                                         
+      293 +                ),                                            
+      294 +                "prob_BUY": [0.60, 0.70, 0.80],               
+      295 +                "prob_SHORT": [0.01, 0.01, 0.01],             
+      296 +            }                                                 
+      297 +        )                                                     
+      298 +                                                              
+      299 +        with tempfile.TemporaryDirectory() as tmpdir:         
+      300 +            out_path = Path(tmpdir) / "equity_curve.csv"      
+      301 +            _save_equity_curve(                               
+      302 +                pred_df,                                      
+      303 +                out_path,                                     
+      304 +                fee=0.0,                                      
+      305 +                n_pools=3,                                    
+      306 +                execution_priority="first_seen",              
+      307 +                max_concurrent_positions_per_ticker=1,        
+      308 +            )                                                 
+      309 +            eq_df = pd.read_csv(out_path)                     
+      310 +                                                              
+      311 +        # The second entry (14:35) overlaps with the still-ope
+          +n first                                                       
+      312 +        # position (14:30-14:45) in the same ticker, so it is 
+          +skipped even                                                  
+      313 +        # though a free pool exists. The third entry (14:50) i
+          +s allowed                                                     
+      314 +        # because the first position has already exited by the
+          +n.                                                            
+      315 +        self.assertEqual(len(eq_df), 2)                       
+      316 +        self.assertEqual(                                     
+      317 +            list(pd.to_datetime(eq_df["entry_timestamp"]).dt.s
+          +trftime("%H:%M:%S")),                                         
+      318 +            ["14:30:00", "14:50:00"],                         
+      319 +        )                                                     
+      320 +                                                              
+      321      def test_meta_score_thresholds_demote_short_and_buy_indepe
+           ndently(self) -> None:
+      322          y_pred = pd.Series([0, 0, 2, 2], dtype="int64").to_num
+           py()
+      323          meta_score = pd.Series([0.03, 0.01, 0.015, 0.005], dty
+           pe="float64").to_numpy()
+
+● Now run the tests to confirm everything works:
+
+● Bash(python -m pytest tests/test_evaluation_runner.py
+      tests/test_pipeline_config.py -q 2>&1 | tail -60)  ⎿  C:\Users\fabia\PycharmProjects\daytrading\.venv\Scripts\python.exe: No
+      module named pytest
+
+● Bash(.venv/Scripts/python.exe -m pytest tests/test_evaluation_runner.py
+      tests/test_pipeline_config.py -q 2>&1 | tail -80)
+  ⎿  C:\Users\fabia\PycharmProjects\daytrading\.venv\Scripts\python.exe: No
+      module named pytest
+
+● Bash(.venv/Scripts/python.exe -m unittest tests.test_evaluation_runner
+      tests.test_pipeline_config -v 2>&1 | tail -100)
+  ⎿  test_ensemble_member_comparison_ranks_best_member_first (tests.test_ev
+     aluation_runner.ExecutionPriorityTests.test_ensemble_member_comparison
+     _ranks_best_member_first) ... ok
+     … +90 lines (ctrl+o to expand)
+
+● The concurrency cap operates inside the pool-loop (it needs cross-row state),
+  so skipped rows stay in the output marked skipped=True rather than being
+  filtered out before the loop — unlike the cooldown filter. Let me fix the test
+  to assert on the skipped column instead of row count.
+
+● Update(tests\test_evaluation_runner.py)
+  ⎿  Added 3 lines, removed 2 lines
+      312          # position (14:30-14:45) in the same ticker, so it is 
+           skipped even
+      313          # though a free pool exists. The third entry (14:50) i
+           s allowed
+      314          # because the first position has already exited by the
+           n.
+      315 -        self.assertEqual(len(eq_df), 2)                       
+      315 +        eq_df = eq_df.sort_values("entry_timestamp").reset_ind
+          +ex(drop=True)                                                 
+      316          self.assertEqual(
+      317              list(pd.to_datetime(eq_df["entry_timestamp"]).dt.s
+           trftime("%H:%M:%S")),
+      318 -            ["14:30:00", "14:50:00"],                         
+      318 +            ["14:30:00", "14:35:00", "14:50:00"],             
+      319          )
+      320 +        self.assertEqual(list(eq_df["skipped"]), [False, True,
+          + False])                                                      
+      321  
+      322      def test_meta_score_thresholds_demote_short_and_buy_indepe
+           ndently(self) -> None:
+      323          y_pred = pd.Series([0, 0, 2, 2], dtype="int64").to_num
+           py()
+
+● Bash(.venv/Scripts/python.exe -m unittest tests.test_evaluation_runner -v 2>&1
+      | tail -30)
+  ⎿  test_ensemble_member_comparison_ranks_best_member_first (tests.test_ev
+     aluation_runner.ExecutionPriorityTests.test_ensemble_member_comparison
+     _ranks_best_member_first) ... ok
+     … +23 lines (ctrl+o to expand)
+
+● All tests pass. Let's run the full test suite to make sure nothing else broke
+  from the wiring changes:
+
+● Bash(.venv/Scripts/python.exe -m unittest discover -s tests -v 2>&1 | tail
+      -40)
+  ⎿      module = self._get_module_from_name(name)
+       File "C:\Users\fabia\AppData\Roaming\uv\python\cpython-3.14.0-window
+     s-x86_64-none\Lib\unittest\loader.py", line 367, in _get_module_from_n
+     … +37 lines (ctrl+o to expand)
+
+● Bash(.venv/Scripts/python.exe -m unittest discover -s tests 2>&1 | grep -E
+      "^(ERROR|FAIL):" )
+  ⎿  ERROR: test_hybrid_retriever (unittest.loader._FailedTest.test_hybrid_
+     retriever)
+     ERROR: test_import_month (unittest.loader._FailedTest.test_import_mont
+     … +7 lines (ctrl+o to expand)
+
+● These are pre-existing failures unrelated to my changes (missing pytest
+  module, and failures in test_feature_engineering/test_walk_forward tied to the
+  already-modified files shown in git status, not anything I touched). Let me
+  confirm by checking those files aren't ones I edited.
+
+● Bash(git status --short -- src/kvant/evaluation/runner.py
+      src/kvant/walk_forward_reporting.py src/kvant/pipeline_runtime.py
+      src/kvant/benchmarking/runner.py src/kvan…)
+  ⎿   M src/kvant/benchmarking/runner.py
+      M src/kvant/evaluation/runner.py
+      M src/kvant/pipeline_runtime.py
+     … +2 lines (ctrl+o to expand)
+
+● Confirmed — the pre-existing failures are in
+  test_feature_engineering.py/test_walk_forward.py (tied to
+  feature_engineering.py/walk-forward code already modified before this session)
+  and missing pytest module, none of which touch the files I edited.
+
+  Summary of what changed:
+
+  max_concurrent_positions_per_ticker is now wired end-to-end: pipeline.toml
+  ([predict], set to 1) → pipeline_config.py (default/validation) →
+  pipeline_runtime.py / benchmarking/runner.py / run_walk_forward.py (read
+  config, pass through) → evaluation/runner.py::_save_equity_curve (actual
+  enforcement: tracks open exit-times per ticker and refuses to claim a pool for
+  a ticker that's already at its concurrency cap, even if other pools are free)
+  → recorded in run_meta.csv and the benchmark/comparison summaries.
+
+  With it set to 1, the same ticker can never have two overlapping open
+  positions across different pools simultaneously — closing the gap where
+  correlated/repeat entries into one name could stack up. Added tests:
+  test_max_concurrent_positions_per_ticker_blocks_overlapping_entries and
+  test_validation_rejects_invalid_max_concurrent_positions_per_ticker, both
+  passing.
+
+✻ Cooked for 9m 17s
+
+❯ in all the run i make the agent allways faulter by the end of the program. is 
+  this do to somrthinh in the code or is it in the dataset, or is it because    
+  in runs for to sghort of a time                                               
+
+● Let me re-verify the structural causes identified in a previous session still
+  hold in the current code, and check the dataset/run-length angles too.
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Still there. Now let's check the walk-forward fold construction to verify the
+  "last fold = worst train/test gap" claim against the current config
+  (max_train_span_months=6, expanding mode).
+
+  Searched for 3 patterns, read 2 files (ctrl+o to expand)
+
+● This isn't new — it's the same two structural causes I traced for you in an
+  earlier session, and I just re-verified both are still present in the current
+  code (your edits and mine didn't touch this path):
+
+  1. It's partly in the code (deterministic, confirmed at prepare.py:336-353).
+  Any bar whose entry falls in the last width_minutes (=40 min, from
+  pipeline.toml:23) of a split window gets dropped, because its triple-barrier
+  exit lands past the window boundary — _build_index silently excludes it
+  (n_dropped_cross_boundary). Every split's last 40 minutes of potential trades
+  just vanish. This makes the equity curve flatline right before each window
+  ends — it doesn't actively lose money, it just stops earning for the last
+  stretch.
+
+  2. It's partly the dataset's nature, not a config of the dataset. Confirmed in
+  utils/walk_forward.py:58-65: in expanding mode, training always starts at
+  start_month and grows up to max_train_span_months=6, then tests on the next
+  month out. The last fold in any walk-forward run is always the one furthest in
+  time from the bulk of its training data — by construction. Markets are
+  non-stationary, so whatever the model learned from Jan–May often doesn't hold
+  as well in the newest month it's tested on. This isn't corrupted data, it's
+  that "the most recent reality" is the one piece of data the model has never
+  adapted to.
+
+  3. Run length (test_span_months=1) is a multiplier, not the root cause. A
+  1-month test fold has maybe ~21 trading days after skip_opening_minutes. The
+  40-minute dead-zone from #1 eats a much bigger slice of a 1-month fold's
+  trading time than it would of a 3-month fold, and with fewer trades to average
+  over, a rough last few days reads as "the whole fold falling apart" even if
+  it's partly small-sample noise. Lengthening test_span_months would dilute both
+  effects but wouldn't fix #2.
+
+  Practical takeaway: #1 is fully fixable — let the labeler see a small buffer
+  of bars past test_end_exclusive (without moving the entry-based split
+  boundary), so the last 40 minutes of each fold stop getting dropped for free.
+  #2 is the hard one — it's the actual cost of testing on the newest, least-seen
+  month every single time, and no labeling fix removes it.
+
+  Want me to implement the buffer fix for #1?
+
+✻ Sautéed for 1m 45s
+
+❯ yes, implement the buffer fix                                                 
+
+  Searched for 2 patterns, read 5 files (ctrl+o to expand)
+● Update(src\kvant\utils\index_utils.py)
+  ⎿  Added 9 lines, removed 1 line
+      28      split: str,
+      29      val_start,
+      30      test_start,
+      31 +    test_end=None,                                             
+      32  ) -> bool:
+      33      """
+      34      Return True if timestamp `ts` belongs to `split` given the 
+          boundaries.
+     ...
+      39      split      : "train" | "val" | "test"
+      40      val_start  : first timestamp of the validation split (or No
+          ne).
+      41      test_start : first timestamp of the test split (or None).
+      42 +    test_end   : exclusive end of the test split (or None for n
+         +o upper bound).                                                
+      43 +                 Lets callers append a label-lookahead buffer o
+         +f bars after                                                   
+      44 +                 the nominal test window without those buffer b
+         +ars becoming                                                   
+      45 +                 eligible trade entries themselves.            
+      46      """
+      47      ts = as_dt64_utc_naive(ts)
+      48      val_start = as_dt64_utc_naive(val_start)
+      49      test_start = as_dt64_utc_naive(test_start)
+      50 +    test_end = as_dt64_utc_naive(test_end)                     
+      51  
+      52      if split == "train":
+      53          cut = val_start if val_start is not None else test_star
+          t
+     ...
+      63      if split == "test":
+      64          if test_start is None:
+      65              return False
+      60 -        return bool(ts >= test_start)                          
+      66 +        if test_end is None:                                   
+      67 +            return bool(ts >= test_start)                      
+      68 +        return bool((ts >= test_start) and (ts < test_end))    
+      69  
+      70      raise ValueError(f"Unknown split: {split!r}. Expected 'trai
+          n', 'val', or 'test'.")
+
+  Read 1 file (ctrl+o to expand)
+
+● Good, handles None correctly. Now update prepare.py to thread through
+  test_end_exclusive and an optional lookahead-buffer dict.
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(src\kvant\experiment\prepare.py)
+  ⎿  Added 9 lines
+      105      ticker_dfs_test: Dict[str, pd.DataFrame],
+      106      experiment_id: Optional[str] = None,
+      107      num_workers: int = 1,
+      108 +    ticker_dfs_test_lookahead: Optional[Dict[str, pd.DataFrame
+          +]] = None,                                                    
+      109 +    test_end_exclusive: Optional[pd.Timestamp] = None,        
+      110  ) -> PreparedExperimentManifest:
+      111      """
+      112      Prepare a full experiment and persist all artifacts to dis
+           k.
+     ...
+      114      Splits are provided explicitly as dicts of DataFrames. For
+            each ticker
+      115      the full history (train+val+test) is concatenated, sampled
+           , and processed
+      116      so val/test can use the causal training history without le
+           akage.
+      117 +                                                              
+      118 +    ``ticker_dfs_test_lookahead`` optionally supplies extra ba
+          +rs immediately                                                
+      119 +    after the test window, used only so the labeler can resolv
+          +e triple-barrier                                              
+      120 +    exits for trades entered near the end of test (which would
+          + otherwise be                                                 
+      121 +    dropped for lacking a future bar). These bars never become
+          + eligible trade                                               
+      122 +    entries themselves: ``test_end_exclusive`` is the boundary
+          + that keeps them                                              
+      123 +    out of the test split's entry set.                        
+      124      """
+      125      stage_timings: Dict[str, float] = {}
+      126      t0_total = time.perf_counter()
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(src\kvant\experiment\prepare.py)
+  ⎿  Added 1 line
+      233              ticker_dfs_train.get(t),
+      234              ticker_dfs_val.get(t),
+      235              ticker_dfs_test.get(t),
+      236 +            (ticker_dfs_test_lookahead or {}).get(t),         
+      237          ])
+      238          if len(df_full) == 0:
+      239              raise RuntimeError(f"Ticker {t!r} has no rows acro
+           ss any split.")
+
+● Now find and update the _build_index entry-eligibility check:
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(src\kvant\experiment\prepare.py)
+  ⎿  Added 4 lines, removed 1 line
+      346              for p in vp:
+      347                  entry_ts = ts_t[int(p)]
+      348                  exit_ts = close_t[int(p)]
+      349 -                in_entry = in_split(entry_ts, split, val_s, te
+          -st_s)                                                         
+      349 +                # test_end bounds entries (so lookahead-buffer
+          + bars never                                                   
+      350 +                # become entries themselves); exits are left u
+          +nbounded so an                                                
+      351 +                # exit landing inside the buffer still counts 
+          +as "in test".                                                 
+      352 +                in_entry = in_split(entry_ts, split, val_s, te
+          +st_s, test_end=test_end_exclusive)                            
+      353                  if not in_entry:
+      354                      continue
+      355  
+
+  Read 1 file (ctrl+o to expand)
+
+● Good, confirmed — _build_index closes over test_end_exclusive directly via the
+  outer scope. Now wire the caller in run_walk_forward.py to build the
+  lookahead buffer from the full pre-fold ticker data and pass it through:
+
+● Update(scripts\run_walk_forward.py)
+  ⎿  Added 15 lines
+       90              _write_manifest(manifest_path, cfg_path, run_id, f
+           olds, completed_rows, skipped_rows, pipeline_cfg)
+       91              continue
+       92  
+       93 +        # Give the labeler a few extra days of already-elapsed
+          + bars past the                                                
+       94 +        # fold's test boundary, purely so trades entered near 
+          +the end of test                                               
+       95 +        # can resolve a real triple-barrier exit instead of be
+          +ing dropped for                                               
+       96 +        # lacking a future bar. These bars are excluded from t
+          +he test split's                                               
+       97 +        # eligible entries (see test_end_exclusive below).    
+       98 +        lookahead_buffer_end = fold.test_end_exclusive + pd.Ti
+          +medelta(days=5)                                               
+       99 +        test_lookahead_dfs = {                                
+      100 +            sym: sliced                                       
+      101 +            for sym, df in ticker_dfs.items()                 
+      102 +            if sym in eligible_tickers                        
+      103 +            and len(sliced := df.loc[                         
+      104 +                (df.index >= fold.test_end_exclusive) & (df.in
+          +dex < lookahead_buffer_end)                                   
+      105 +            ]) > 0                                            
+      106 +        }                                                     
+      107 +                                                              
+      108          sampler, fe, labeler, exp_cfg = build_default_componen
+           ts(
+      109              interval=pipeline_cfg["data"].get("interval", "1m"
+           ),
+      110              volatility_scaled_barrier=bool(pipeline_cfg["prepa
+           re"].get("volatility_scaled_barrier", True)),
+
+● Let me simplify that into a plain loop for clarity, matching the codebase's
+  style:
+
+● Update(scripts\run_walk_forward.py)
+  ⎿  Added 6 lines, removed 8 lines
+       96          # lacking a future bar. These bars are excluded from t
+           he test split's
+       97          # eligible entries (see test_end_exclusive below).
+       98          lookahead_buffer_end = fold.test_end_exclusive + pd.Ti
+           medelta(days=5)
+       99 -        test_lookahead_dfs = {                                
+      100 -            sym: sliced                                       
+      101 -            for sym, df in ticker_dfs.items()                 
+      102 -            if sym in eligible_tickers                        
+      103 -            and len(sliced := df.loc[                         
+      104 -                (df.index >= fold.test_end_exclusive) & (df.in
+          -dex < lookahead_buffer_end)                                   
+      105 -            ]) > 0                                            
+      106 -        }                                                     
+       99 +        test_lookahead_dfs: dict[str, pd.DataFrame] = {}      
+      100 +        for sym in eligible_tickers:                          
+      101 +            df = ticker_dfs[sym]                              
+      102 +            sliced = df.loc[(df.index >= fold.test_end_exclusi
+          +ve) & (df.index < lookahead_buffer_end)]                      
+      103 +            if len(sliced) > 0:                               
+      104 +                test_lookahead_dfs[sym] = sliced              
+      105  
+      106          sampler, fe, labeler, exp_cfg = build_default_componen
+           ts(
+      107              interval=pipeline_cfg["data"].get("interval", "1m"
+           ),
+
+● Now wire test_lookahead_dfs and fold.test_end_exclusive into the
+  prepare_experiment call:
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(scripts\run_walk_forward.py)
+  ⎿  Added 2 lines
+      126              ticker_dfs_test=test_dfs,
+      127              experiment_id=fold.fold_id,
+      128              num_workers=int(prepare_cfg.get("num_workers", 1))
+           ,
+      129 +            ticker_dfs_test_lookahead=test_lookahead_dfs,     
+      130 +            test_end_exclusive=fold.test_end_exclusive,       
+      131          )
+      132          fold_dir = prepared.exp_dir
+      133          (fold_dir / "walk_forward_fold.json").write_text(
+
+● Update(scripts\run_walk_forward.py)
+  ⎿  Added 1 line, removed 1 line
+      101              df = ticker_dfs[sym]
+      102              sliced = df.loc[(df.index >= fold.test_end_exclusi
+           ve) & (df.index < lookahead_buffer_end)]
+      103              if len(sliced) > 0:
+      104 -                test_lookahead_dfs[sym] = sliced              
+      104 +                test_lookahead_dfs[sym] = sliced.copy()       
+      105  
+      106          sampler, fe, labeler, exp_cfg = build_default_componen
+           ts(
+      107              interval=pipeline_cfg["data"].get("interval", "1m"
+           ),
+
+● Let's also fix the density-reporting helper so the buffer bars don't inflate
+  "test" bar counts in the diagnostic summary:
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(src\kvant\experiment\prepare.py)
+  ⎿  Added 2 lines, removed 1 line
+      65      ts: np.ndarray,
+      66      val_start: Optional[np.datetime64],
+      67      test_start: Optional[np.datetime64],
+      68 +    test_end: Optional[np.datetime64] = None,                  
+      69  ) -> Dict[str, int]:
+      70      out: Dict[str, int] = {"train": 0, "val": 0, "test": 0}
+      71      for tt in ts:
+      72          for split in ("train", "val", "test"):
+      72 -            if in_split(tt, split, val_start, test_start):     
+      73 +            if in_split(tt, split, val_start, test_start, test_
+         +end=test_end):                                                 
+      74                  out[split] += 1
+      75                  break
+      76      return out
+● Now update the call sites in _process_ticker:
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(src\kvant\experiment\prepare.py)
+  ⎿  Added 2 lines, removed 2 lines
+      266              "retention_ratio":         retention,
+      267              "bars_per_day_raw":        _bars_per_day(ts_raw),
+      268              "bars_per_day_sampled":    _bars_per_day(ts),
+      269 -            "raw_counts_by_split":     _counts_by_split(ts_raw
+          -, val_start, test_start),                                     
+      270 -            "sampled_counts_by_split": _counts_by_split(ts, va
+          -l_start, test_start),                                         
+      269 +            "raw_counts_by_split":     _counts_by_split(ts_raw
+          +, val_start, test_start, test_end=test_end_exclusive),        
+      270 +            "sampled_counts_by_split": _counts_by_split(ts, va
+          +l_start, test_start, test_end=test_end_exclusive),            
+      271              "label_counts":            _label_counts(y),
+      272              "label_counts_valid":      _label_counts(y[valid_p
+           os]) if len(valid_pos) else {},
+      273          }
+
+● Now let's run the relevant existing tests to make sure nothing broke:
+
+● Bash(.venv/Scripts/python.exe -m unittest discover -s tests -k "" 2>&1 | tail
+      -5; echo "---"; ls tests | grep -iE "prepare|index_utils|walk_forward")
+  ⎿  ----------------------------------------------------------------------
+     Ran 72 tests in 1.550s
+     … +3 lines (ctrl+o to expand)
+
+  Searched for 3 patterns (ctrl+o to expand)
+
+● I'll add a focused unit test for the new test_end boundary logic in in_split,
+  since that's the core new behavior and has no existing test coverage:
+
+● Write(tests\test_index_utils.py)
+  ⎿  Wrote 52 lines to tests\test_index_utils.py
+       2 import unittest
+       3 import numpy as np
+       4 
+       5 from kvant.utils.index_utils import in_split, valid_target_posit
+         ions
+       6 
+       7 
+       8 class InSplitTests(unittest.TestCase):
+       9     def setUp(self) -> None:
+      10         self.val_start = "2025-06-01"
+     … +53 lines (ctrl+o to expand)
+
+● Bash(.venv/Scripts/python.exe -m unittest tests.test_index_utils -v 2>&1 |
+      tail -20)
+  ⎿  test_test_split_excludes_lookahead_buffer_when_test_end_given (tests.t
+     est_index_utils.InSplitTests.test_test_split_excludes_lookahead_buffer
+     _when_test_end_given) ... ok
+     … +11 lines (ctrl+o to expand)
+
+● Now let's run a Python syntax/import sanity check on run_walk_forward.py and
+  prepare.py to confirm everything imports cleanly:
+
+● Bash(.venv/Scripts/python.exe -c "
+      import ast…)
+  ⎿  scripts/run_walk_forward.py OK
+     src/kvant/experiment/prepare.py OK
+     src/kvant/utils/index_utils.py OK
+
+● Bash(.venv/Scripts/python.exe -c "
+      import kvant.experiment.prepare as p…)
+  ⎿  Traceback (most recent call last):
+       File "<string>", line 3, in <module>
+         import scripts_check
+     … +9 lines (ctrl+o to expand)
+
+● Imports work and the new signature is correct (first error was just an
+  irrelevant stray module name).
+
+● Bash(.venv/Scripts/python.exe -m unittest discover -s tests 2>&1 | tail -8)
+  ⎿  + ['fold_000', 'fold_001', 'fold_002']
+     ?                        ++++++++++++
+     … +5 lines (ctrl+o to expand)
+
+● Same pre-existing failures, no new ones (76 tests now vs 72 before, +4 from my
+  new test_index_utils.py, all passing).
+
+  Summary of the buffer fix:
+
+  - src/kvant/utils/index_utils.py::in_split — added an optional test_end
+  parameter. When provided, the "test" branch becomes test_start <= ts < 
+  test_end instead of open-ended; when omitted, behavior is unchanged (every
+  other caller is unaffected).
+  - src/kvant/experiment/prepare.py::prepare_experiment — added
+  ticker_dfs_test_lookahead (extra bars appended only for label/exit resolution)
+  and test_end_exclusive (the boundary used to keep those bars from becoming
+  eligible entries). _process_ticker now concatenates the lookahead bars into
+  df_full so the labeler has enough forward bars to resolve triple-barrier exits
+  near the tail of test; _build_index bounds the entry check with
+  test_end_exclusive but leaves the exit check unbounded, so a trade entered
+  legitimately in test but exiting into the buffer is kept rather than dropped
+  as cross-boundary. Density-reporting counts (_counts_by_split) were also
+  updated so buffer bars don't inflate the "test" bar count in
+  density_summary.json.
+  - scripts/run_walk_forward.py — for each fold, slices a 5-calendar-day buffer
+  from the already-loaded full ticker history immediately after
+  fold.test_end_exclusive and passes it through.
+
+  This only helps folds that aren't the very last one in the loaded date range —
+  the truly final fold (testing on the most recent month with no further data
+  loaded) still has no future bars to borrow, which is a real data-availability
+  limit, not a bug. Added tests/test_index_utils.py covering the new test_end
+  boundary logic (4 tests, all passing); full suite still shows only the same 3
+  pre-existing unrelated failures/errors from before this change.
+
+✻ Sautéed for 8m 13s

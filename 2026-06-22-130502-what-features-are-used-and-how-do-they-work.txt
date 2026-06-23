@@ -1,0 +1,125 @@
+ ▐▛███▜▌   Claude Code v2.1.183
+▝▜█████▛▘  Sonnet 4.6 · Claude Pro
+  ▘▘ ▝▝    ~\PycharmProjects\daytrading
+
+
+❯ what features are used and how do they work                                   
+
+  Searched for 2 patterns, read 1 file (ctrl+o to expand)
+
+● Bash(cd "C:/Users/fabia/PycharmProjects/daytrading" && find . -maxdepth 2
+      -type d -not -path "*/.venv*" -not -path "*/.git*")
+  ⎿  .
+     ./.claude
+     ./.idea
+     … +16 lines (ctrl+o to expand)
+
+● This is a quant trading project ("kvant"). The feature engineering lives in
+  src/kvant/features/feature_engineering.py. Let me read it.
+
+  Read 2 files (ctrl+o to expand)
+
+● Let me also check meta/features.py since there's a meta-model layer that might
+  consume features differently.
+
+  Read 1 file (ctrl+o to expand)
+
+● The project has two feature layers: a base feature engineer (price/volume →
+  model inputs) and a meta-model feature set (built on top of base-model
+  predictions, for trade ranking).
+
+  1. Base features — src/kvant/features/feature_engineering.py
+
+  Three composable classes implementing a fit/transform (sklearn-style)
+  interface:
+
+  OHLCVFeatures — passes through raw open/high/low/close/volume, optionally
+  log1p-transforming volume. Mostly a baseline/debug engineer.
+
+  IntradayTA10Features — the main feature set, 10 groups, all designed to be
+  stationary (returns/ratios, not raw price levels) so they generalize across
+  tickers and price regimes:
+
+  Group: OHLC returns
+  Features: close_ret, hl_range, co_ret, ho_ret, lo_ret
+  What it captures: log-returns between bar's open/high/low/close — replaces raw
+
+    price with scale-free moves
+  ────────────────────────────────────────
+  Group: Volume
+  Features: volume (log1p or raw)
+  What it captures: trading activity
+  ────────────────────────────────────────
+  Group: EMA deviation
+  Features: ema_dev_{5,10,15,20,50}b, ewmstd_{...}b
+  What it captures: close/EMA - 1 and normalized EWM std — trend deviation +
+    local volatility per window
+  ────────────────────────────────────────
+  Group: MACD
+  Features: macd, macd_signal, macd_hist (normalized by close)
+  What it captures: trend/momentum crossover, scale-independent
+  ────────────────────────────────────────
+  Group: RSI
+  Features: rsi_{6,10,14}b (Wilder's smoothing)
+  What it captures: overbought/oversold momentum
+  ────────────────────────────────────────
+  Group: ATR
+  Features: atr_14b (normalized by close)
+  What it captures: Wilder's volatility from true range (gap-aware, unlike
+    close-to-close vol)
+  ────────────────────────────────────────
+  Group: Bollinger
+  Features: bb_pct_20b, bb_bandwidth_20b
+  What it captures: price's position in its rolling distribution + band width
+    (vol expansion/contraction)
+  ────────────────────────────────────────
+  Group: VWAP
+  Features: vwap, vwap_dev
+  What it captures: intraday volume-weighted price anchor, reset daily, and
+    deviation from it
+  ────────────────────────────────────────
+  Group: Vol regime
+  Features: realized_vol_20b, vol_regime_ratio
+  What it captures: rolling realized vol + short/long vol ratio (regime shift
+    signal)
+  ────────────────────────────────────────
+  Group: Time-of-day
+  Features: time_of_day_sin/cos
+  What it captures: sin/cos encoding of minutes since NYSE open (14:30–21:00
+    UTC), so the model can learn intraday seasonality without a discontinuity at
+
+    session boundaries
+
+  A typical_bar_minutes/data_bar_minutes pair lets you rescale all lookback
+  windows (e.g. paper's "20-bar" windows defined for 5-min bars get rescaled if
+  you feed 1-min bars).
+
+  StandardizedFeatures — wraps any of the above and z-scores them
+  ((X-mean)/std), with mean/std fit only on the training split (or pooled across
+  tickers via fit_from_ticker_dfs) to avoid lookahead leakage, matching the
+  paper's scaling methodology.
+
+  2. Meta-model features — src/kvant/meta/features.py
+
+  These sit on top of the base classifier's predictions (not on price data) and
+  are used to rank/filter trades rather than predict direction:
+
+  - side — ±1 from the predicted label (SHORT=0 → -1, BUY=2 → +1)
+  - side_confidence — the model's predicted probability for whichever side it
+  picked (prob_SHORT or prob_BUY)
+  - ticker_side_prior_score — a causal, shrinkage-smoothed historical mean PnL
+  for that (ticker, side) pair: (local_sum + k·global_mean) / (local_n + k),
+  blending the ticker-specific track record toward the global average when
+  there's little local history
+  - ticker_side_prior_n — how many historical trades back that prior
+
+  The causal part is important: a heap (pending) holds completed trades keyed by
+  bar_close_time and only folds them into the running sums once their close
+  time is ≤ the current row's entry timestamp — so the prior never uses
+  information from a trade that hadn't closed yet (no lookahead).
+
+  Want me to go deeper into how these are wired into the training/prediction
+  pipeline (e.g. sklearn_trainer.py, pytorch_trainer.py, or the walk-forward
+  runner)?
+
+✻ Cogitated for 50s

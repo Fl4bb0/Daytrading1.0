@@ -1,0 +1,76 @@
+ ▐▛███▜▌   Claude Code v2.1.183
+▝▜█████▛▘  Sonnet 4.6 · Claude Pro
+  ▘▘ ▝▝    ~\PycharmProjects\daytrading
+
+
+❯ explane Walk-Forward Backtesting                                              
+
+  Searched for 1 pattern, recalled 1 memory (ctrl+o to expand)
+
+● This project already has its own walk-forward implementation. Let me look at
+  the actual code so I can explain it in terms of what you've built, not generic
+  theory.
+
+  Searched for 2 patterns, read 3 files (ctrl+o to expand)
+
+● Walk-Forward Backtesting — General Idea
+
+  Instead of one train/test split, you slide a window through time, repeatedly:
+
+  1. Train on a block of past data
+  2. Validate (tune/select) on the next chunk
+  3. Test on the chunk after that — data the model has never touched, and which
+  comes strictly after training in time
+
+  Then you step forward and repeat. This mimics how a strategy would actually be
+  deployed — retrained periodically as new data arrives — rather than a single
+  static train/test split that can hide regime-dependent luck. Concatenating all
+  the out-of-sample test folds gives you one continuous equity curve with no
+  lookahead bias, which is a much more honest estimate of real-world performance
+  than k-fold CV (which would let the model train on "future" data relative to
+  some test rows).
+
+  Two flavors:
+  - Expanding window: training set keeps growing (Fold 1 includes everything
+  Fold 0 had, plus more).
+  - Rolling window: training set is a fixed size that slides forward, dropping
+  old data as it adds new.
+
+  How your repo implements it
+
+  src/kvant/utils/walk_forward.py builds folds month-by-month
+  (build_walk_forward_folds). Your current pipeline.toml config
+  ([walk_forward]):
+
+  mode = "expanding"
+  start_month = 2025-01, end_month = 2025-07
+  train_span_months = 4, val_span_months = 1, test_span_months = 1
+  step_span_months = 1, max_train_span_months = 6
+  gap_days = 0
+
+  With expanding mode, fold i's train window is [start_month, start_month + 
+  train_span + i*step], capped from the left by max_train_span_months once it'd
+  otherwise exceed 6 months. Val and test follow immediately after, each
+  gap_days apart (purge buffer to stop triple-barrier labels — which look
+  forward up to width_minutes — from leaking across a split boundary). Given
+  Jan–Jul 2025 and these spans, that yields 2 folds.
+
+  Per fold, split_ticker_dfs_for_fold slices each ticker's data and only keeps a
+  ticker if it has enough rows in train/val/test (min_*_rows_per_ticker) —
+  tickers with data gaps get dropped from that fold rather than corrupting it.
+
+  scripts/run_walk_forward.py drives the loop (load → slice → prepare → train →
+  predict → collect metrics per fold, each written to
+  prepared/walkforward/<run_id>/fold_XXX/), and walk_forward_reporting.py
+  stitches the test-set predictions from all folds into one combined equity
+  curve/metrics report at the end.
+
+  One thing worth flagging: gap_days = 0 in your current config contradicts the
+  comment in walk_forward.py line 41-43, which says the default of 1 day exists
+  specifically to prevent label lookahead leakage across split boundaries (since
+  triple-barrier labels look forward width_minutes = 40 min). With gap_days = 
+  0, the last bars of train/val could have labels computed from price action
+  that falls inside the next split's window — a small leak. Want me to look into
+  bumping that, or was it set to 0 deliberately?
+
+✻ Worked for 41s
